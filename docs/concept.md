@@ -19,6 +19,8 @@
 11. [Tech Stack](#11-tech-stack)
 12. [Environment Variables](#12-environment-variables)
 13. [Phased Implementation Plan](#13-phased-implementation-plan)
+14. [Getting Started](#14-getting-started)
+15. [Testing Strategy](#15-testing-strategy)
 
 ---
 
@@ -758,5 +760,309 @@ NEXT_PUBLIC_API_URL=http://localhost:3001
 
 ---
 
-*Last updated: Phase 0 — Project initialized*
-*Next milestone: Phase 1 — Foundation*
+## 14. Getting Started
+
+### Prerequisites
+
+| Tool | Version | Install |
+|---|---|---|
+| Bun | ≥ 1.3 | `curl -fsSL https://bun.sh/install \| bash` |
+| Docker Desktop | latest | docker.com/products/docker-desktop |
+| Git | any | git-scm.com |
+
+### First-Time Setup
+
+```bash
+# 1. Clone & install dependencies
+git clone <repo-url> news-app
+cd news-app
+bun install
+
+# 2. Set up environment variables
+cp .env.example .env
+# Edit .env — fill in your API keys (ANTHROPIC_API_KEY at minimum)
+
+# 3. Start PostgreSQL + Redis
+bun run docker:up
+
+# 4. Run database migrations
+bun run db:migrate
+
+# 5. Seed the database (creates admin user + default categories)
+bun run db:seed
+
+# 6. Generate Prisma client (if not done already)
+bun run db:generate
+```
+
+### Running in Development
+
+```bash
+# Run both apps simultaneously
+bun run dev
+
+# Or run individually
+bun run dev:web       # Next.js  → http://localhost:3000
+bun run dev:server    # Express  → http://localhost:3001
+
+# Verify server is up
+curl http://localhost:3001/api/v1/health
+```
+
+### Default Credentials (seeded)
+
+```
+Admin login:  admin@newsforge.com / admin123
+```
+
+> Change the admin password immediately after first login.
+
+### Adding Shadcn Components
+
+```bash
+cd apps/web
+
+bunx shadcn@latest add card
+bunx shadcn@latest add table
+bunx shadcn@latest add dialog
+bunx shadcn@latest add badge
+bunx shadcn@latest add input
+# etc.
+```
+
+### Database Workflow
+
+```bash
+# After editing packages/db/prisma/schema.prisma:
+bun run db:migrate         # creates a migration + applies it
+bun run db:generate        # regenerates Prisma client
+
+# Visual DB browser
+bun run db:studio          # opens Prisma Studio at http://localhost:5555
+
+# Force-push schema (dev/prototype only — never in production)
+bun run db:push
+```
+
+### Project Structure At-a-Glance
+
+```
+news-app/
+├── apps/
+│   ├── web/          → Next.js 16, Tailwind v4, Shadcn — http://localhost:3000
+│   └── server/       → Express 5, BullMQ workers      — http://localhost:3001
+├── packages/
+│   ├── db/           → Prisma schema + migrations + seed
+│   └── types/        → Shared TypeScript DTOs
+├── tests/
+│   ├── unit/         → Bun test (fast, no DB/network)
+│   └── integration/  → Bun test (requires Docker infra running)
+├── docs/             → Project documentation
+├── docker-compose.yml
+├── CLAUDE.md         → Coding conventions
+└── .env.example
+```
+
+---
+
+## 15. Testing Strategy
+
+### Test Runner
+
+All tests use **Bun's built-in test runner** — no Jest, no Vitest needed.
+
+```bash
+# Run all tests
+bun test
+
+# Run unit tests only
+bun test tests/unit
+
+# Run integration tests only (requires docker:up + db:migrate first)
+bun test tests/integration
+
+# Run a specific file
+bun test tests/unit/server/services/articles.service.test.ts
+
+# Watch mode
+bun test --watch tests/unit
+```
+
+### Test Structure
+
+```
+tests/
+├── unit/
+│   ├── server/
+│   │   ├── services/
+│   │   │   ├── articles.service.test.ts    Pure service logic, mocked Prisma
+│   │   │   ├── claude.service.test.ts      AI generation, mocked Anthropic SDK
+│   │   │   └── youtube.service.test.ts     YouTube parsing logic
+│   │   ├── middleware/
+│   │   │   ├── validate.test.ts            Zod validation middleware
+│   │   │   └── error-handler.test.ts       Error serialization
+│   │   └── workers/
+│   │       └── split-strategy.test.ts      Duration → article count logic
+│   └── web/
+│       └── lib/
+│           └── utils.test.ts               cn(), formatDate(), etc.
+│
+└── integration/
+    ├── setup.ts                            Global beforeAll/afterAll (DB reset)
+    ├── api/
+    │   ├── articles.test.ts                Full HTTP: GET /api/v1/articles
+    │   ├── admin.articles.test.ts          Admin approve/reject flow
+    │   ├── admin.sources.test.ts           Source CRUD
+    │   └── admin.channels.test.ts          YouTube channel CRUD
+    └── workers/
+        ├── news-fetch.test.ts              News fetch → article creation
+        └── rss-fetch.test.ts               RSS fetch → article creation
+```
+
+### Philosophy
+
+```
+Unit tests:         Fast. No I/O. Mock everything external.
+Integration tests:  Real DB + Redis. Test the full request/response cycle.
+No E2E (yet):       Playwright will be added in Phase 5.
+```
+
+### Unit Test Example
+
+```typescript
+// tests/unit/server/workers/split-strategy.test.ts
+import { describe, it, expect } from "bun:test"
+import { getSplitCount } from "../../../apps/server/src/workers/split-strategy"
+
+describe("getSplitCount", () => {
+  it("returns 1 article for videos under 10 minutes", () => {
+    expect(getSplitCount(9 * 60)).toBe(1)
+    expect(getSplitCount(0)).toBe(1)
+  })
+
+  it("returns 2 articles for 10–20 minute videos", () => {
+    expect(getSplitCount(15 * 60)).toBe(2)
+  })
+
+  it("returns 3 articles for 20–40 minute videos", () => {
+    expect(getSplitCount(30 * 60)).toBe(3)
+  })
+
+  it("returns 4 articles for 40–60 minute videos", () => {
+    expect(getSplitCount(50 * 60)).toBe(4)
+  })
+
+  it("returns 5+ articles for videos over 60 minutes", () => {
+    expect(getSplitCount(90 * 60)).toBeGreaterThanOrEqual(5)
+  })
+})
+```
+
+### Integration Test Example
+
+```typescript
+// tests/integration/api/articles.test.ts
+import { describe, it, expect, beforeAll, afterAll } from "bun:test"
+import { prisma } from "@news-app/db"
+
+const API = "http://localhost:3001/api/v1"
+
+beforeAll(async () => {
+  // Seed a published article for tests
+  await prisma.article.create({
+    data: {
+      title: "Test Article",
+      slug: "test-article",
+      content: "Test content",
+      status: "APPROVED",
+      publishedAt: new Date(),
+      aiGenerated: false,
+    },
+  })
+})
+
+afterAll(async () => {
+  await prisma.article.deleteMany({ where: { slug: "test-article" } })
+  await prisma.$disconnect()
+})
+
+describe("GET /api/v1/articles", () => {
+  it("returns paginated published articles", async () => {
+    const res = await fetch(`${API}/articles`)
+    expect(res.status).toBe(200)
+
+    const body = await res.json()
+    expect(body).toHaveProperty("data")
+    expect(body).toHaveProperty("total")
+    expect(Array.isArray(body.data)).toBe(true)
+  })
+
+  it("filters by category slug", async () => {
+    const res = await fetch(`${API}/articles?category=technology`)
+    expect(res.status).toBe(200)
+  })
+
+  it("paginates correctly", async () => {
+    const res = await fetch(`${API}/articles?page=1&pageSize=5`)
+    const body = await res.json()
+    expect(body.pageSize).toBe(5)
+    expect(body.page).toBe(1)
+  })
+})
+
+describe("GET /api/v1/articles/:slug", () => {
+  it("returns a single article by slug", async () => {
+    const res = await fetch(`${API}/articles/test-article`)
+    expect(res.status).toBe(200)
+
+    const body = await res.json()
+    expect(body.data.slug).toBe("test-article")
+  })
+
+  it("returns 404 for unknown slug", async () => {
+    const res = await fetch(`${API}/articles/does-not-exist`)
+    expect(res.status).toBe(404)
+  })
+})
+```
+
+### Mocking Prisma in Unit Tests
+
+```typescript
+// tests/unit/server/services/articles.service.test.ts
+import { describe, it, expect, mock, beforeEach } from "bun:test"
+
+// Mock the prisma module before importing the service
+mock.module("@news-app/db", () => ({
+  prisma: {
+    article: {
+      findUnique: mock(() => Promise.resolve(null)),
+      findMany: mock(() => Promise.resolve([])),
+      count: mock(() => Promise.resolve(0)),
+    },
+  },
+}))
+
+import { articlesService } from "../../../apps/server/src/api/v1/articles/articles.service"
+
+describe("articlesService.findBySlug", () => {
+  it("throws NotFoundError when article does not exist", async () => {
+    expect(articlesService.findBySlug("missing-slug")).rejects.toThrow("Article not found")
+  })
+})
+```
+
+### Coverage Targets
+
+| Area | Target |
+|---|---|
+| `apps/server/src/services/` | 80%+ |
+| `apps/server/src/middleware/` | 90%+ |
+| `apps/server/src/workers/` (pure logic) | 70%+ |
+| `apps/web/src/lib/` | 80%+ |
+| Integration (API routes) | All happy + error paths |
+
+---
+
+*Last updated: Phase 1 — Foundation complete*
+*Next milestone: Phase 2 — Core read/write path*
