@@ -5,7 +5,7 @@ import { apiSuccess } from "../../../lib/response"
 
 export const aiConfigController = {
   async get(_req: Request, res: Response): Promise<void> {
-    const config = await prisma.aIConfig.findFirst({ where: { isActive: true } })
+    const config = await prisma.aiConfig.findFirst({ where: { isActive: true } })
     if (!config) throw new NotFoundError("No active AI config found")
     apiSuccess(res, config)
   },
@@ -14,14 +14,14 @@ export const aiConfigController = {
     const { provider, model, temperature, maxTokens, baseUrl } = req.body
 
     // Ensure a config record exists — upsert on the first (and only) active one
-    const existing = await prisma.aIConfig.findFirst({ where: { isActive: true } })
+    const existing = await prisma.aiConfig.findFirst({ where: { isActive: true } })
 
     const config = existing
-      ? await prisma.aIConfig.update({
+      ? await prisma.aiConfig.update({
           where: { id: existing.id },
           data: { provider, model, temperature, maxTokens, baseUrl },
         })
-      : await prisma.aIConfig.create({
+      : await prisma.aiConfig.create({
           data: { provider, model, temperature, maxTokens, baseUrl, isActive: true },
         })
 

@@ -13,7 +13,7 @@ const ARTICLE_FROM_TREND_V1      = "article-from-trend-v1"
 // ─── Active config loader (cached per request) ────────────────────────────────
 
 async function getActiveConfig() {
-  const config = await prisma.aIConfig.findFirst({ where: { isActive: true } })
+  const config = await prisma.aiConfig.findFirst({ where: { isActive: true } })
   if (!config) throw new Error("No active AI config found. Please configure an AI provider in the admin settings.")
   return config
 }

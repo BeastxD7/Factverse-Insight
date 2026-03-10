@@ -294,7 +294,7 @@ model JobRun {
 
 // ─── AI Configuration ─────────────────────────────────────────────────────────
 
-model AIConfig {
+model AiConfig {
   id          String     @id @default(cuid())
   provider    AIProvider @default(ANTHROPIC)
   model       String     @default("claude-sonnet-4-6")
