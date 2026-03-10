@@ -1,45 +1,72 @@
-# Dependencies
+# ── Dependencies ──────────────────────────────────────────────────────────────
 node_modules/
 .pnp
 .pnp.js
 
-# Build outputs
+# ── Build outputs ─────────────────────────────────────────────────────────────
 .next/
 dist/
 build/
 out/
+.vercel/
 
-# Environment variables
+# ── Environment variables ─────────────────────────────────────────────────────
 .env
 .env.local
 .env.*.local
 !.env.example
 
-# Prisma generated
-packages/db/node_modules/
+# ── Bun ───────────────────────────────────────────────────────────────────────
+# bun.lock is intentionally tracked (reproducible installs)
+bun.lockb
 
-# Uploads (local file storage)
+# ── Uploads (local file storage) ──────────────────────────────────────────────
 uploads/
 
-# Logs
+# ── Logs ──────────────────────────────────────────────────────────────────────
 *.log
 logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# OS
+# ── OS generated ──────────────────────────────────────────────────────────────
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
 Thumbs.db
+ehthumbs.db
+Desktop.ini
 
-# Editor
+# ── Editor ────────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
 *.swo
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
 
-# Bun
-bun.lockb
+# ── Claude Code ───────────────────────────────────────────────────────────────
+.claude/
 
-# Turbo
+# ── Turbo ─────────────────────────────────────────────────────────────────────
 .turbo/
 
-# Redis dump
+# ── Redis dump ────────────────────────────────────────────────────────────────
 dump.rdb
+
+# ── Stray shell artefacts (Windows/Git Bash path expansion issues) ────────────
+~/
+~
+
+# ── TypeScript ────────────────────────────────────────────────────────────────
+*.tsbuildinfo
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+coverage/
+.nyc_output/

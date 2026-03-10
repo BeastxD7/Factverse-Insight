@@ -70,8 +70,10 @@
       "version": "0.0.1",
       "dependencies": {
         "@prisma/client": "^6.0.0",
+        "bcryptjs": "^3.0.3",
       },
       "devDependencies": {
+        "@types/bcryptjs": "^3.0.0",
         "prisma": "^6.0.0",
         "typescript": "^5.7.0",
       },
