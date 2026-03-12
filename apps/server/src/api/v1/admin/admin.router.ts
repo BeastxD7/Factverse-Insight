@@ -2,6 +2,8 @@ import { Router } from "express"
 import { requireAdmin } from "../../../middleware/require-admin"
 import { adminController } from "./admin.controller"
 import { aiConfigController } from "./ai-config.controller"
+import { ingestController } from "./ingest.controller"
+import { upload, uploadController } from "./upload.controller"
 import { validate } from "../../../middleware/validate"
 import { z } from "zod"
 
@@ -20,6 +22,8 @@ const articleQuerySchema = z.object({
   status: z.enum(["DRAFT", "REVIEW", "APPROVED", "REJECTED", "ARCHIVED"]).optional(),
 })
 router.get("/articles", validate(articleQuerySchema, "query"), adminController.listArticles)
+router.get("/articles/:id", adminController.getArticle)
+router.get("/articles/by-slug/:slug", adminController.getArticleBySlug)
 
 // Jobs
 const jobQuerySchema = z.object({
@@ -34,7 +38,7 @@ router.delete("/jobs/:id", adminController.cancelJob)
 
 // AI config
 const aiConfigSchema = z.object({
-  provider: z.enum(["ANTHROPIC", "AZURE_OPENAI", "GROQ", "OPENROUTER"]).optional(),
+  provider: z.enum(["AZURE_OPENAI", "GROQ", "OPENROUTER"]).optional(),
   model: z.string().min(1).optional(),
   temperature: z.coerce.number().min(0).max(2).optional(),
   maxTokens: z.coerce.number().int().min(256).max(32000).optional(),
@@ -42,5 +46,16 @@ const aiConfigSchema = z.object({
 })
 router.get("/ai-config", aiConfigController.get)
 router.patch("/ai-config", validate(aiConfigSchema), aiConfigController.update)
+
+// Manual ingest
+const youtubeIngestSchema = z.object({
+  url: z.string().url("Must be a valid URL"),
+  topicId: z.string().optional(),
+})
+router.post("/ingest/youtube", validate(youtubeIngestSchema), ingestController.youtubeUrl)
+router.get("/ingest/jobs/:id", ingestController.jobStatus)
+
+// File upload
+router.post("/upload", upload.single("image"), uploadController.uploadImage)
 
 export { router as adminRouter }

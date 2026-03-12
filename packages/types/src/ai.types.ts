@@ -1,4 +1,4 @@
-export type AIProvider = "ANTHROPIC" | "AZURE_OPENAI" | "GROQ" | "OPENROUTER"
+export type AIProvider = "AZURE_OPENAI" | "GROQ" | "OPENROUTER"
 
 export interface AIConfig {
   id: string
@@ -23,11 +23,6 @@ export interface UpdateAIConfigDto {
 // ─── Available models per provider ───────────────────────────────────────────
 
 export const AI_PROVIDER_MODELS: Record<AIProvider, Array<{ id: string; label: string }>> = {
-  ANTHROPIC: [
-    { id: "claude-opus-4-6",    label: "Claude Opus 4.6" },
-    { id: "claude-sonnet-4-6",  label: "Claude Sonnet 4.6 (recommended)" },
-    { id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
-  ],
   GROQ: [
     { id: "llama-3.3-70b-versatile",  label: "Llama 3.3 70B Versatile" },
     { id: "llama-3.1-8b-instant",     label: "Llama 3.1 8B Instant" },
@@ -41,6 +36,7 @@ export const AI_PROVIDER_MODELS: Record<AIProvider, Array<{ id: string; label: s
     { id: "openai/gpt-4o",                     label: "GPT-4o (via OpenRouter)" },
   ],
   AZURE_OPENAI: [
+    { id: "o3-mini",      label: "o3-mini (recommended)" },
     { id: "gpt-4o",       label: "GPT-4o" },
     { id: "gpt-4o-mini",  label: "GPT-4o Mini" },
     { id: "gpt-4-turbo",  label: "GPT-4 Turbo" },
@@ -48,8 +44,23 @@ export const AI_PROVIDER_MODELS: Record<AIProvider, Array<{ id: string; label: s
 }
 
 export const AI_PROVIDER_LABELS: Record<AIProvider, string> = {
-  ANTHROPIC:    "Anthropic (Claude)",
   AZURE_OPENAI: "Azure OpenAI",
   GROQ:         "Groq",
   OPENROUTER:   "OpenRouter",
+}
+
+// ─── Transcript splitting ────────────────────────────────────────────────────
+
+export interface TranscriptSegment {
+  title: string
+  startPosition: number // Approximate char position in transcript
+  endPosition: number
+  summary: string
+  keyTopics: string[]
+}
+
+export interface TranscriptSplitResult {
+  shouldSplit: boolean
+  reason?: string
+  segments: TranscriptSegment[]
 }

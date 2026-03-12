@@ -89,7 +89,6 @@ export type AiConfig = $Result.DefaultSelection<Prisma.$AiConfigPayload>
  */
 export namespace $Enums {
   export const AIProvider: {
-  ANTHROPIC: 'ANTHROPIC',
   AZURE_OPENAI: 'AZURE_OPENAI',
   GROQ: 'GROQ',
   OPENROUTER: 'OPENROUTER'

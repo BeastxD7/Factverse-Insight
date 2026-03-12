@@ -11,7 +11,6 @@ datasource db {
 // ─── Enums ───────────────────────────────────────────────────────────────────
 
 enum AIProvider {
-  ANTHROPIC
   AZURE_OPENAI
   GROQ
   OPENROUTER
@@ -297,8 +296,8 @@ model JobRun {
 
 model AiConfig {
   id          String     @id @default(cuid())
-  provider    AIProvider @default(ANTHROPIC)
-  model       String     @default("claude-sonnet-4-6")
+  provider    AIProvider @default(AZURE_OPENAI)
+  model       String     @default("o3-mini")
   temperature Float      @default(0.7)
   maxTokens   Int        @default(4000)
   // baseUrl is required for Azure OpenAI (endpoint URL) and optional for OpenRouter

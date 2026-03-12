@@ -50,6 +50,18 @@ export const adminController = {
     apiPaginated(res, result)
   },
 
+  async getArticle(req: Request, res: Response): Promise<void> {
+    const id = String(req.params.id)
+    const article = await articlesService.findById(id)
+    apiSuccess(res, article)
+  },
+
+  async getArticleBySlug(req: Request, res: Response): Promise<void> {
+    const slug = String(req.params.slug)
+    const article = await articlesService.findBySlugAdmin(slug)
+    apiSuccess(res, article)
+  },
+
   async listJobs(req: Request, res: Response): Promise<void> {
     const { page = 1, pageSize = 20, type, status } = req.query as Record<string, string>
     const skip = (Number(page) - 1) * Number(pageSize)

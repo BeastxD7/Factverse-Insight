@@ -82,6 +82,34 @@ export const articlesService = {
     return { ...article, tags: article.tags.map((t) => t.tag) }
   },
 
+  async findById(id: string) {
+    const article = await prisma.article.findUnique({
+      where: { id },
+      include: {
+        category: { select: { id: true, name: true, slug: true } },
+        tags: { select: { tag: { select: { id: true, name: true, slug: true } } } },
+      },
+    })
+
+    if (!article) throw new NotFoundError("Article not found")
+
+    return { ...article, tags: article.tags.map((t) => t.tag) }
+  },
+
+  async findBySlugAdmin(slug: string) {
+    const article = await prisma.article.findUnique({
+      where: { slug },
+      include: {
+        category: { select: { id: true, name: true, slug: true } },
+        tags: { select: { tag: { select: { id: true, name: true, slug: true } } } },
+      },
+    })
+
+    if (!article) throw new NotFoundError("Article not found")
+
+    return { ...article, tags: article.tags.map((t) => t.tag) }
+  },
+
   async update(id: string, data: UpdateArticleDto) {
     const article = await prisma.article.findUnique({ where: { id } })
     if (!article) throw new NotFoundError("Article not found")

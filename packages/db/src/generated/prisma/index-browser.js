@@ -348,7 +348,6 @@ exports.JobStatus = exports.$Enums.JobStatus = {
 };
 
 exports.AIProvider = exports.$Enums.AIProvider = {
-  ANTHROPIC: 'ANTHROPIC',
   AZURE_OPENAI: 'AZURE_OPENAI',
   GROQ: 'GROQ',
   OPENROUTER: 'OPENROUTER'
