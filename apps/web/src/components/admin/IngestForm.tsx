@@ -2,18 +2,10 @@
 
 import { useState, useTransition, useEffect, useRef, useCallback } from "react"
 import { toast } from "sonner"
-import { Youtube, Loader2, CheckCircle, XCircle, Clock } from "lucide-react"
+import { Video, Loader2, CheckCircle, XCircle, Clock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Badge } from "@/components/ui/badge"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
 import { ingestYoutubeUrl, getJobStatus } from "@/app/admin/ingest/actions"
 import { isMultiArticleResult } from "@/app/admin/ingest/types"
 
@@ -142,102 +134,123 @@ export function IngestForm() {
   }
 
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Youtube className="size-5 text-red-500" />
-            YouTube Video
-          </CardTitle>
-          <CardDescription>
-            Paste a YouTube URL to fetch its transcript, generate an AI article,
-            and add it to the review queue.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="youtube-url">Video URL</Label>
-              <Input
-                id="youtube-url"
-                type="url"
-                placeholder="https://www.youtube.com/watch?v=..."
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                disabled={isPending}
-              />
+    <div className="space-y-5">
+      {/* Input card */}
+      <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
+        {/* YouTube brand header */}
+        <div className="px-6 pt-5 pb-4 border-b border-border/60 bg-muted/20">
+          <div className="flex items-center gap-3">
+            <div className="size-9 rounded-lg bg-red-50 dark:bg-red-900/20 flex items-center justify-center">
+              <Video className="size-5 text-red-500" />
             </div>
-            <Button type="submit" disabled={isPending || !url.trim()}>
-              {isPending ? (
-                <>
-                  <Loader2 className="size-4 animate-spin" />
-                  Submitting...
-                </>
-              ) : (
-                "Submit"
-              )}
-            </Button>
+            <div>
+              <h3 className="font-semibold text-sm">YouTube Video</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Paste a URL — AI will fetch the transcript and generate articles
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-6">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="youtube-url" className="text-sm font-medium">
+                Video URL
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="youtube-url"
+                  type="url"
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  disabled={isPending}
+                  className="flex-1 h-10"
+                />
+                <Button type="submit" disabled={isPending || !url.trim()} className="h-10 px-5 shrink-0">
+                  {isPending ? (
+                    <span className="flex items-center gap-2">
+                      <Loader2 className="size-4 animate-spin" />
+                      Queuing...
+                    </span>
+                  ) : (
+                    "Process"
+                  )}
+                </Button>
+              </div>
+            </div>
           </form>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
+      {/* Jobs list */}
       {jobs.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Recent Jobs</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              {jobs.map((job) => {
-                const config = statusConfig[job.status]
-                const Icon = config.icon
+        <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
+          <div className="px-5 py-3 border-b border-border/60 bg-muted/20">
+            <h3 className="text-sm font-semibold">Recent Jobs</h3>
+          </div>
+          <div className="divide-y divide-border/60">
+            {jobs.map((job) => {
+              const config = statusConfig[job.status]
+              const Icon = config.icon
+              const isActive = job.status === "PENDING" || job.status === "RUNNING"
 
-                return (
-                  <div
-                    key={job.jobRunId}
-                    className="flex items-center justify-between rounded-lg border p-3"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
+              return (
+                <div
+                  key={job.jobRunId}
+                  className="flex items-center justify-between px-5 py-3.5 hover:bg-muted/20 transition-colors"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    {/* Status indicator */}
+                    <div className={`size-7 rounded-full flex items-center justify-center shrink-0 ${
+                      job.status === "COMPLETED" ? "bg-emerald-50 dark:bg-emerald-900/20" :
+                      job.status === "FAILED" ? "bg-red-50 dark:bg-red-900/20" :
+                      job.status === "RUNNING" ? "bg-blue-50 dark:bg-blue-900/20" :
+                      "bg-muted"
+                    }`}>
                       <Icon
-                        className={`size-4 shrink-0 ${
-                          job.status === "RUNNING" ? "animate-spin" : ""
+                        className={`size-3.5 ${
+                          job.status === "COMPLETED" ? "text-emerald-500" :
+                          job.status === "FAILED" ? "text-red-500" :
+                          job.status === "RUNNING" ? "text-blue-500 animate-spin" :
+                          "text-muted-foreground"
                         }`}
                       />
-                      <div className="min-w-0">
-                        {job.articleCount && job.articleTitles ? (
-                          <>
-                            <p className="text-sm font-medium">
-                              {job.articleCount} articles generated
-                            </p>
-                            <p className="text-xs text-muted-foreground truncate">
-                              {job.articleTitles.slice(0, 2).join(" · ")}
-                              {job.articleCount > 2 ? ` · +${job.articleCount - 2} more` : ""}
-                            </p>
-                          </>
-                        ) : (
-                          <p className="text-sm font-medium truncate">
-                            {job.articleTitle ?? `Job ${job.jobRunId.slice(-8)}`}
-                          </p>
-                        )}
-                        {job.status === "FAILED" && job.errorMessage && (
-                          <p className="text-xs text-destructive truncate">
-                            {job.errorMessage}
-                          </p>
-                        )}
-                      </div>
                     </div>
-                    <Badge
-                      variant="outline"
-                      className={`shrink-0 text-xs ${config.color}`}
-                    >
-                      {config.label}
-                    </Badge>
+
+                    <div className="min-w-0">
+                      {job.articleCount && job.articleTitles ? (
+                        <>
+                          <p className="text-sm font-medium">
+                            {job.articleCount} articles generated
+                          </p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {job.articleTitles.slice(0, 2).join(" · ")}
+                            {job.articleCount > 2 ? ` · +${job.articleCount - 2} more` : ""}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-sm font-medium truncate">
+                          {job.articleTitle ?? (isActive ? "Processing video..." : `Job ${job.jobRunId.slice(-8)}`)}
+                        </p>
+                      )}
+                      {job.status === "FAILED" && job.errorMessage && (
+                        <p className="text-xs text-destructive truncate mt-0.5">
+                          {job.errorMessage}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                )
-              })}
-            </div>
-          </CardContent>
-        </Card>
+
+                  <span className={`shrink-0 ml-3 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${config.color}`}>
+                    {config.label}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
       )}
     </div>
   )

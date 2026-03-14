@@ -9,7 +9,6 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarGroup,
-  SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
   SidebarMenuButton,
@@ -29,17 +28,24 @@ export function AppSidebar() {
 
   return (
     <Sidebar>
-      <SidebarHeader>
-        <div className="flex items-center gap-2 px-2 py-1">
-          <Newspaper className="size-5" />
-          <span className="font-semibold text-lg">NewsForge</span>
+      {/* Logo / Brand */}
+      <SidebarHeader className="border-b border-sidebar-border">
+        <div className="flex items-center gap-3 px-3 py-3">
+          <div className="size-8 rounded-lg bg-sidebar-primary/20 flex items-center justify-center shrink-0">
+            <Newspaper className="size-4 text-sidebar-primary" />
+          </div>
+          <div className="min-w-0">
+            <p className="font-semibold text-sm text-sidebar-foreground leading-none">NewsForge</p>
+            <p className="text-xs text-sidebar-foreground/50 mt-0.5 leading-none">Admin Panel</p>
+          </div>
         </div>
-        <p className="px-2 text-xs text-muted-foreground">Admin Dashboard</p>
       </SidebarHeader>
 
-      <SidebarContent>
+      <SidebarContent className="pt-2">
         <SidebarGroup>
-          <SidebarGroupLabel>Navigation</SidebarGroupLabel>
+          <p className="px-3 mb-1.5 text-[11px] font-semibold uppercase tracking-widest text-sidebar-foreground/40">
+            Navigation
+          </p>
           <SidebarMenu>
             {navItems.map(({ href, label, icon: Icon, exact }) => {
               const isActive = exact ? pathname === href : pathname.startsWith(href)
@@ -48,9 +54,14 @@ export function AppSidebar() {
                   <SidebarMenuButton
                     render={<Link href={href} />}
                     isActive={isActive}
-                    className={cn(isActive && "font-medium")}
+                    className={cn(
+                      "rounded-lg mx-1 transition-all",
+                      isActive
+                        ? "bg-sidebar-primary text-sidebar-primary-foreground font-medium shadow-sm"
+                        : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
+                    )}
                   >
-                    <Icon className="size-4" />
+                    <Icon className="size-4 shrink-0" />
                     {label}
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -60,10 +71,13 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter>
+      <SidebarFooter className="border-t border-sidebar-border pt-2">
         <SidebarMenu>
           <SidebarMenuItem>
-            <SidebarMenuButton render={<Link href="/" target="_blank" />}>
+            <SidebarMenuButton
+              render={<Link href="/" target="_blank" />}
+              className="rounded-lg mx-1 text-sidebar-foreground/60 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-all"
+            >
               <ExternalLink className="size-4" />
               View Site
             </SidebarMenuButton>
@@ -71,7 +85,7 @@ export function AppSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton
               onClick={() => signOut({ callbackUrl: "/login" })}
-              className="text-destructive hover:text-destructive"
+              className="rounded-lg mx-1 text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-all"
             >
               <LogOut className="size-4" />
               Sign Out
