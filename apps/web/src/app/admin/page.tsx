@@ -19,7 +19,7 @@ export default async function AdminPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">Dashboard</h1>
-          <p className="text-muted-foreground text-sm mt-1">Overview of your NewsForge instance</p>
+          <p className="text-muted-foreground text-sm mt-1">Overview of your Factverse Insights instance</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" nativeButton={false} render={<Link href="/admin/articles" />}>

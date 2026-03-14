@@ -79,7 +79,7 @@ export function DraftView({ article }: DraftViewProps) {
             </Button>
             <div className="hidden sm:flex items-center gap-1.5 text-sm text-muted-foreground">
               <Newspaper className="size-4" />
-              <span>NewsForge</span>
+              <span>Factverse Insights</span>
             </div>
           </div>
 

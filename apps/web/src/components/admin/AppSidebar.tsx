@@ -35,7 +35,7 @@ export function AppSidebar() {
             <Newspaper className="size-4 text-sidebar-primary" />
           </div>
           <div className="min-w-0">
-            <p className="font-semibold text-sm text-sidebar-foreground leading-none">NewsForge</p>
+            <p className="font-semibold text-sm text-sidebar-foreground leading-none">Factverse Insights</p>
             <p className="text-xs text-sidebar-foreground/50 mt-0.5 leading-none">Admin Panel</p>
           </div>
         </div>

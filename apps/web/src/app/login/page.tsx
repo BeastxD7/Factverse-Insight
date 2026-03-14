@@ -58,7 +58,7 @@ export default function LoginPage() {
               <div className="size-12 rounded-xl bg-primary flex items-center justify-center shadow-lg shadow-primary/25 mb-4">
                 <Newspaper className="size-6 text-primary-foreground" />
               </div>
-              <h1 className="text-2xl font-bold tracking-tight">NewsForge</h1>
+              <h1 className="text-2xl font-bold tracking-tight">Factverse Insights</h1>
               <p className="text-sm text-muted-foreground mt-1">Admin Dashboard</p>
             </div>
 
@@ -125,7 +125,7 @@ export default function LoginPage() {
         <p className="text-center mt-6 text-sm text-muted-foreground">
           Not an admin?{" "}
           <a href="/" className="text-primary hover:underline font-medium">
-            View the site →
+            View the site
           </a>
         </p>
       </div>

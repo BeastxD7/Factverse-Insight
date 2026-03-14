@@ -3,7 +3,7 @@
 import { useTransition } from "react"
 import { useRouter, usePathname } from "next/navigation"
 import { toast } from "sonner"
-import { CheckCircle, XCircle, Clock, Eye, BookOpen, Sparkles } from "lucide-react"
+import { CheckCircle, XCircle, Clock, Eye, BookOpen, Sparkles, Star } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -14,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { updateArticleStatus } from "@/app/admin/articles/actions"
+import { updateArticleStatus, toggleArticleFeatured } from "@/app/admin/articles/actions"
 import type { ArticleListItem, ArticleStatus } from "@news-app/types"
 import { cn } from "@/lib/utils"
 
@@ -48,6 +48,17 @@ export function ArticleQueue({ articles, currentStatus }: ArticleQueueProps) {
       const result = await updateArticleStatus(id, newStatus)
       if (result.success) {
         toast.success(`Article ${newStatus.toLowerCase()}`)
+      } else {
+        toast.error(result.error ?? "Something went wrong")
+      }
+    })
+  }
+
+  const handleToggleFeatured = (id: string, currentFeatured: boolean) => {
+    startTransition(async () => {
+      const result = await toggleArticleFeatured(id, !currentFeatured)
+      if (result.success) {
+        toast.success(currentFeatured ? "Removed from featured" : "Set as featured on homepage")
       } else {
         toast.error(result.error ?? "Something went wrong")
       }
@@ -108,13 +119,20 @@ export function ArticleQueue({ articles, currentStatus }: ArticleQueueProps) {
               {articles.map((article) => (
                 <TableRow key={article.id} className="hover:bg-muted/30 transition-colors">
                   <TableCell className="max-w-xs pl-4 py-3">
-                    <p className="truncate font-medium text-sm">{article.title}</p>
-                    {article.aiGenerated && (
-                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
-                        <Sparkles className="size-3" />
-                        AI generated
-                      </span>
-                    )}
+                    <div className="flex items-start gap-2">
+                      {article.featured && (
+                        <Star className="size-3.5 text-amber-400 fill-amber-400 shrink-0 mt-0.5" />
+                      )}
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-sm">{article.title}</p>
+                        {article.aiGenerated && (
+                          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground mt-0.5">
+                            <Sparkles className="size-3" />
+                            AI generated
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   </TableCell>
                   <TableCell className="py-3">
                     {article.category ? (
@@ -153,6 +171,23 @@ export function ArticleQueue({ articles, currentStatus }: ArticleQueueProps) {
                   </TableCell>
                   <TableCell className="py-3 pr-4">
                     <div className="flex justify-end gap-1.5">
+                      {/* Feature toggle — only for approved articles */}
+                      {article.status === "APPROVED" && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          title={article.featured ? "Remove from homepage" : "Feature on homepage"}
+                          className={cn(
+                            "h-7 w-7 p-0",
+                            article.featured
+                              ? "text-amber-400 hover:text-amber-500"
+                              : "text-muted-foreground hover:text-amber-400"
+                          )}
+                          onClick={() => handleToggleFeatured(article.id, article.featured)}
+                        >
+                          <Star className={cn("size-3.5", article.featured && "fill-amber-400")} />
+                        </Button>
+                      )}
                       {article.status !== "APPROVED" && (
                         <Button
                           size="sm"
