@@ -13,10 +13,10 @@ const ARTICLE_FROM_SEGMENT_V1    = "article-from-segment-v1"
 
 // ─── Smart split constants ────────────────────────────────────────────────────
 
-const CHUNK_SIZE           = 24000  // chars per chunk — o3-mini supports 200k tokens (~800k chars)
-const CHUNK_BATCH_SIZE     = 5      // parallel AI calls at once (rate-limit friendly)
-const SAMPLE_PER_CHUNK     = 2500   // chars sampled per chunk for article gen (richer with large context)
-const MIN_CHARS_FOR_SPLIT  = 80000
+const CHUNK_SIZE             = 24000  // chars per chunk — o3-mini supports 200k tokens (~800k chars)
+const CHUNK_BATCH_SIZE       = 5      // parallel AI calls at once (rate-limit friendly)
+const MAX_SEGMENT_INPUT      = 80000  // max raw transcript chars sent per article (o3-mini: 200k tokens ≈ 800k chars)
+const MIN_CHARS_FOR_SPLIT    = 80000
 const MIN_DURATION_FOR_SPLIT = 90 * 60 // 90 minutes
 
 // ─── Active config loader (cached per request) ────────────────────────────────
@@ -56,7 +56,7 @@ function getAzureClient(configBaseUrl: string | null) {
 
 // ─── Core completion ─────────────────────────────────────────────────────────
 
-async function complete(prompt: string): Promise<string> {
+async function complete(prompt: string, maxTokensOverride?: number): Promise<string> {
   const config = await getActiveConfig()
 
   // All providers use OpenAI-compatible API (Groq, OpenRouter, Azure OpenAI)
@@ -77,7 +77,7 @@ async function complete(prompt: string): Promise<string> {
 
   const response = await (client as OpenAI).chat.completions.create({
     model: config.model,
-    max_completion_tokens: config.maxTokens,
+    max_completion_tokens: maxTokensOverride ?? config.maxTokens,
     ...(!isReasoningModel && { temperature: config.temperature }),
     messages: [{ role: "user", content: prompt }],
   })
@@ -101,28 +101,40 @@ export const aiService = {
   async generateArticleFromTranscript(
     transcript: string,
     topicKeywords: string[],
-    videoMeta: { title: string; duration: number; channelName: string }
+    videoMeta: { title: string; duration: number; channelName: string; url?: string }
   ): Promise<ArticleGenerationResult> {
     const config = await getActiveConfig()
-    const prompt = `You are an expert SEO content writer. Based on the following YouTube video transcript, write a high-quality, original, SEO-optimised news article.
+    const videoRef = videoMeta.url
+      ? `[${videoMeta.title}](${videoMeta.url})`
+      : `"${videoMeta.title}"`
+    const prompt = `You are a journalist and content writer covering YouTube videos and podcasts. Your job is to extract all the key insights from a video and present them as a standalone article — so the reader gets the full value without watching.
 
-VIDEO METADATA:
+VIDEO:
 Title: ${videoMeta.title}
 Channel: ${videoMeta.channelName}
-Duration: ${Math.round(videoMeta.duration / 60)} minutes
+Duration: ${Math.round(videoMeta.duration / 60)} minutes${videoMeta.url ? `\nURL: ${videoMeta.url}` : ""}
 
 TOPIC KEYWORDS (embed naturally):
 ${topicKeywords.join(", ")}
 
-TRANSCRIPT SEGMENT:
-${transcript.slice(0, 6000)}
+VIDEO CONTENT (what was said):
+${transcript.slice(0, 40000)}
 
-Write the article and return ONLY a JSON object with this exact structure:
+WRITING RULES — STRICTLY FOLLOW:
+- Write as a journalist covering this video/podcast, NOT as someone analysing a transcript
+- NEVER mention "transcript", "transcription", or "the text" — you watched the video
+- Reference the video naturally: "In this episode, Jack Barsky explained...", "During the conversation, he revealed...", "Speaking on ${videoMeta.channelName}, [name] discussed..."
+- You MAY link to the video once at the start or end using markdown: ${videoRef}
+- Use direct quotes from what was said (e.g. "He said, 'I was recruited by the KGB at 25'")
+- Write in third person, present the ideas as insights from the video
+- The article should be a complete TL;DW (Too Long; Didn't Watch) — all value, no filler
+
+Return ONLY a JSON object:
 {
   "title": "Compelling SEO title (50-60 chars)",
   "slug": "url-friendly-slug",
   "excerpt": "Meta excerpt / summary (120-160 chars)",
-  "content": "Full article in Markdown with H2/H3 headings, paragraphs, and a conclusion. Minimum 600 words.",
+  "content": "Full in-depth article in Markdown with H2/H3 headings, paragraphs, and a conclusion. Minimum 1200 words. Include specific insights, quotes, and examples from the video.",
   "metaTitle": "SEO meta title (50-60 chars)",
   "metaDescription": "SEO meta description (150-160 chars)",
   "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
@@ -130,7 +142,7 @@ Write the article and return ONLY a JSON object with this exact structure:
   "suggestedTags": ["tag1", "tag2", "tag3"]
 }`
 
-    const raw = await complete(prompt)
+    const raw = await complete(prompt, 12000)
     return { ...extractJSON(raw), aiModel: config.model, aiPromptVersion: ARTICLE_FROM_TRANSCRIPT_V1 }
   },
 
@@ -266,7 +278,7 @@ Return ONLY a JSON object:
       )
       .join("\n\n")
 
-    const segmentPrompt = `You are segmenting a ${Math.round(videoMeta.duration / 60)}-minute video into topic-based article sections.
+    const segmentPrompt = `You are a content strategist deciding how to split a ${Math.round(videoMeta.duration / 60)}-minute video transcript into separate articles.
 
 VIDEO: "${videoMeta.title}" by ${videoMeta.channelName}
 
@@ -274,22 +286,31 @@ Below is a complete content map — every chunk covers ${CHUNK_SIZE} chars of th
 
 ${mapText}
 
-Group these ${totalChunks} chunks into 2-5 major segments for separate articles.
-Rules:
-- Chunks with related or continuous topics belong in the SAME segment
-- Different phases of the same story (e.g. history + journey of a startup) = same segment
-- Only split when the topic genuinely changes (e.g. startup journey → cricket business)
-- Each segment must have enough content for a 500+ word article
+Your job: create exactly as many segments as the content naturally warrants. Let the TOPICS decide — not a target number.
+
+SPLITTING RULES:
+- Every genuinely distinct major topic = its own segment/article
+  → If 8 different subjects are discussed, create 8 segments
+  → If 10 different stories are told, create 10 segments
+- One topic explored deeply throughout = fewer, longer articles
+  → If it's all one continuous story with phases, keep it 1-2 segments
+- NEVER merge two clearly different topics just to keep count low
+- NEVER split a single continuous discussion just to create more articles
+- Each segment needs at least 2 chunks so there's enough for a 1500+ word article
+- Every chunk must belong to exactly one segment — no gaps, no overlap
+- ${totalChunks} chunks total — all must be covered
+
+SHOULD SPLIT = false ONLY IF: the entire video is one unified topic/story with no clear subject boundaries. In that case return a single segment.
 
 Return ONLY a JSON object:
 {
   "shouldSplit": true,
-  "reason": "brief explanation",
+  "reason": "brief explanation of how many topics were found and why",
   "segments": [
     {
-      "title": "Segment title",
+      "title": "Specific descriptive title for this topic",
       "chunkStart": 0,
-      "chunkEnd": 3,
+      "chunkEnd": 2,
       "summary": "what this segment covers",
       "keyTopics": ["topic1", "topic2"]
     }
@@ -302,7 +323,20 @@ Return ONLY a JSON object:
     ) as { shouldSplit: boolean; reason?: string; segments: Array<{ title: string; chunkStart: number; chunkEnd: number; summary: string; keyTopics: string[] }> }
 
     if (!segResult.shouldSplit || !segResult.segments.length) {
-      return { shouldSplit: false, segments: [], contentMap }
+      // Single unified topic — wrap the whole transcript as one segment so
+      // generateArticleFromSegment uses the full contentMap (not the 40k fallback)
+      return {
+        shouldSplit: true,
+        reason: segResult.reason ?? "Single unified topic — one comprehensive article",
+        segments: [{
+          title:         videoMeta.title,
+          summary:       "Full video — single unified topic",
+          keyTopics:     [],
+          startPosition: 0,
+          endPosition:   transcript.length,
+        }],
+        contentMap,
+      }
     }
 
     // Convert chunk indices → exact char positions using the content map
@@ -336,40 +370,49 @@ Return ONLY a JSON object:
       (c) => c.startPos >= segment.startPosition && c.endPos <= segment.endPosition
     )
 
-    // Build proportional raw-text sample — actual verbatim content from EVERY chunk
+    // Send the FULL raw text of every chunk in this segment (up to MAX_SEGMENT_INPUT chars).
+    // o3-mini has a 200k token (~800k char) context window — no need to sample tiny slices.
     let sampledText: string
     if (chunksInSegment.length === 0) {
       // Fallback: segment boundaries don't align with chunks — just slice directly
-      sampledText = transcript.slice(segment.startPosition, segment.endPosition).slice(0, 8000)
+      sampledText = transcript.slice(segment.startPosition, segment.endPosition).slice(0, MAX_SEGMENT_INPUT)
     } else {
-      const charsPerChunk = Math.floor(8000 / chunksInSegment.length)
-      sampledText = chunksInSegment
-        .map((chunk, i) => {
-          const rawText = transcript.slice(chunk.startPos, chunk.endPos)
-          return `[Part ${i + 1} — ${chunk.topicName}]\n${rawText.slice(0, charsPerChunk)}`
-        })
+      const rawParts = chunksInSegment
+        .map((chunk, i) => `[Part ${i + 1} — ${chunk.topicName}]\n${transcript.slice(chunk.startPos, chunk.endPos)}`)
         .join("\n\n---\n\n")
+      sampledText = rawParts.slice(0, MAX_SEGMENT_INPUT)
     }
 
-    const prompt = `You are an expert SEO content writer. Based on the following transcript excerpts from a YouTube video, write a focused, high-quality, original, SEO-optimised article.
+    const videoRef = `[${videoMeta.title}](${videoMeta.url})`
+    const prompt = `You are a journalist and content writer covering YouTube videos and podcasts. Your job is to extract all the key insights from a specific segment of a video and present them as a standalone article — so the reader gets the full value without watching.
 
 VIDEO: ${videoMeta.title} by ${videoMeta.channelName}
-SOURCE: ${videoMeta.url}
+URL: ${videoMeta.url}
 
 ARTICLE FOCUS: ${segment.title}
-WHAT THIS COVERS: ${segment.summary}
+WHAT THIS SEGMENT COVERS: ${segment.summary}
 KEY TOPICS: ${segment.keyTopics.join(", ")}
 ${topicKeywords.length ? `\nEMBED THESE KEYWORDS NATURALLY: ${topicKeywords.join(", ")}` : ""}
 
-TRANSCRIPT EXCERPTS (actual content sampled from every part of this segment):
+VIDEO CONTENT FOR THIS SEGMENT (what was said):
 ${sampledText}
 
-Write a focused article about "${segment.title}" and return ONLY a JSON object:
+WRITING RULES — STRICTLY FOLLOW:
+- Write as a journalist covering this video/podcast, NOT as someone analysing a transcript
+- NEVER mention "transcript", "transcription", "the text", or "according to the text" — you watched/listened to the video
+- Reference the video naturally: "In this episode, he explained...", "During the interview, she revealed...", "Speaking on ${videoMeta.channelName}, [name] shared..."
+- You MAY link to the video once using markdown: ${videoRef}
+- Use direct quotes from what was said naturally (e.g. He said, "I was recruited by the KGB at age 25")
+- Present ideas as insights from the video, not analysis of a document
+- The article should be a complete TL;DW (Too Long; Didn't Watch) — all value, no filler
+- Focus ONLY on the topics of this segment: "${segment.title}"
+
+Return ONLY a JSON object:
 {
   "title": "Compelling SEO title about this specific topic (50-60 chars)",
   "slug": "url-friendly-slug",
   "excerpt": "Meta excerpt / summary (120-160 chars)",
-  "content": "Full article in Markdown with H2/H3 headings, paragraphs, and conclusion. Minimum 500 words. Focus ONLY on this segment's topics.",
+  "content": "Full in-depth article in Markdown with H2/H3 headings, paragraphs, and conclusion. MINIMUM 1500 words. Include specific quotes, stories, and insights from the video. Cover every important point thoroughly.",
   "metaTitle": "SEO meta title (50-60 chars)",
   "metaDescription": "SEO meta description (150-160 chars)",
   "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
@@ -377,7 +420,8 @@ Write a focused article about "${segment.title}" and return ONLY a JSON object:
   "suggestedTags": ["tag1", "tag2", "tag3"]
 }`
 
-    const raw = await complete(prompt)
+    // 12000 tokens ≈ 9000 words of output — plenty for a comprehensive 1500-3000 word article
+    const raw = await complete(prompt, 12000)
     return { ...extractJSON(raw), aiModel: config.model, aiPromptVersion: ARTICLE_FROM_SEGMENT_V1 }
   },
 }

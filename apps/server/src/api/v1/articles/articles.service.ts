@@ -151,7 +151,20 @@ export const articlesService = {
         skip,
         take: pageSize,
         orderBy: { createdAt: "desc" },
-        include: {
+        select: {
+          id: true,
+          title: true,
+          slug: true,
+          excerpt: true,
+          ogImage: true,
+          status: true,
+          publishedAt: true,
+          viewCount: true,
+          featured: true,
+          sourceType: true,
+          aiGenerated: true,
+          createdAt: true,
+          content: true,
           category: { select: { id: true, name: true, slug: true } },
           tags: { select: { tag: { select: { id: true, name: true, slug: true } } } },
         },
@@ -160,7 +173,11 @@ export const articlesService = {
     ])
 
     return {
-      data: data.map((a) => ({ ...a, tags: a.tags.map((t) => t.tag) })),
+      data: data.map(({ content, tags, ...a }) => ({
+        ...a,
+        tags: tags.map((t) => t.tag),
+        contentLength: content?.length ?? 0,
+      })),
       total,
       page,
       pageSize,

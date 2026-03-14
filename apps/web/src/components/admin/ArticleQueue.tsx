@@ -3,7 +3,7 @@
 import { useTransition } from "react"
 import { useRouter, usePathname } from "next/navigation"
 import { toast } from "sonner"
-import { CheckCircle, XCircle, Clock, Eye } from "lucide-react"
+import { CheckCircle, XCircle, Clock, Eye, BookOpen } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -86,6 +86,7 @@ export function ArticleQueue({ articles, currentStatus }: ArticleQueueProps) {
                 <TableHead>Title</TableHead>
                 <TableHead>Category</TableHead>
                 <TableHead>Source</TableHead>
+                <TableHead>Length</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -111,6 +112,18 @@ export function ArticleQueue({ articles, currentStatus }: ArticleQueueProps) {
                     <span className="text-xs text-muted-foreground">
                       {article.sourceType?.replace(/_/g, " ") ?? "Manual"}
                     </span>
+                  </TableCell>
+                  <TableCell>
+                    {article.contentLength > 0 ? (
+                      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                        <BookOpen className="size-3 shrink-0" />
+                        <span>{Math.ceil(article.contentLength / 1000)} min</span>
+                        <span className="text-muted-foreground/50">·</span>
+                        <span>{(article.contentLength / 1000).toFixed(1)}k</span>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[article.status]}`}>

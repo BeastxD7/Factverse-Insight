@@ -20,6 +20,7 @@ export interface ArticleListItem {
   featured: boolean
   sourceType: SourceType | null
   aiGenerated: boolean
+  contentLength: number
   category: { id: string; name: string; slug: string } | null
   tags: Array<{ id: string; name: string; slug: string }>
   createdAt: string

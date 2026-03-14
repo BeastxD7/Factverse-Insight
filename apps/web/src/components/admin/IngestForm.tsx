@@ -14,7 +14,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { ingestYoutubeUrl, getJobStatus, isMultiArticleResult } from "@/app/admin/ingest/actions"
+import { ingestYoutubeUrl, getJobStatus } from "@/app/admin/ingest/actions"
+import { isMultiArticleResult } from "@/app/admin/ingest/types"
 
 interface JobState {
   jobRunId: string

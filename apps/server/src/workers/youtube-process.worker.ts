@@ -118,18 +118,17 @@ async function processYoutubeVideo(job: Job<YoutubeProcessPayload>): Promise<voi
     console.log(`[youtube-process] Analyzing content for smart splitting...`)
     const splitAnalysis = await aiService.analyzeAndSplitTranscript(transcript, meta)
 
-    if (splitAnalysis.shouldSplit && splitAnalysis.segments.length > 1) {
-      console.log(
-        `[youtube-process] Smart split enabled: ${splitAnalysis.segments.length} segments detected`
-      )
+    if (splitAnalysis.shouldSplit && splitAnalysis.segments.length >= 1) {
+      const segCount = splitAnalysis.segments.length
+      console.log(`[youtube-process] Smart split: ${segCount} segment(s) detected`)
       console.log(`[youtube-process] Reason: ${splitAnalysis.reason}`)
 
       const articles: Array<{ id: string; title: string; slug: string }> = []
 
-      // Generate an article for each segment
-      for (let i = 0; i < splitAnalysis.segments.length; i++) {
+      // Generate an article for each segment (works for 1 segment or many)
+      for (let i = 0; i < segCount; i++) {
         const segment = splitAnalysis.segments[i]
-        console.log(`[youtube-process] Generating article ${i + 1}/${splitAnalysis.segments.length}: "${segment.title}"`)
+        console.log(`[youtube-process] Generating article ${i + 1}/${segCount}: "${segment.title}"`)
 
         const result = await aiService.generateArticleFromSegment(
           transcript,
@@ -144,33 +143,47 @@ async function processYoutubeVideo(job: Job<YoutubeProcessPayload>): Promise<voi
         console.log(`[youtube-process] Created article "${article.title}" (${article.id})`)
       }
 
-      // Update JobRun to COMPLETED with multiple articles
       if (jobRun) {
-        await prisma.jobRun.update({
-          where: { id: jobRun.id },
-          data: {
-            status: "COMPLETED",
-            completedAt: new Date(),
-            result: {
-              articleCount: articles.length,
-              articles: articles.map((a) => ({ id: a.id, title: a.title, slug: a.slug })),
-              splitReason: splitAnalysis.reason,
+        if (articles.length === 1) {
+          // Single segment — store as single article result for cleaner UI
+          await prisma.jobRun.update({
+            where: { id: jobRun.id },
+            data: {
+              status: "COMPLETED",
+              completedAt: new Date(),
+              result: {
+                articleId: articles[0].id,
+                articleTitle: articles[0].title,
+                articleSlug: articles[0].slug,
+              },
             },
-          },
-        })
+          })
+        } else {
+          await prisma.jobRun.update({
+            where: { id: jobRun.id },
+            data: {
+              status: "COMPLETED",
+              completedAt: new Date(),
+              result: {
+                articleCount: articles.length,
+                articles: articles.map((a) => ({ id: a.id, title: a.title, slug: a.slug })),
+                splitReason: splitAnalysis.reason,
+              },
+            },
+          })
+        }
       }
 
-      console.log(`[youtube-process] Successfully created ${articles.length} articles from video`)
+      console.log(`[youtube-process] Successfully created ${articles.length} article(s) from video`)
     } else {
-      // Generate single article (original behavior)
-      console.log(`[youtube-process] Generating single article (no split needed)`)
-      const result = await aiService.generateArticleFromTranscript(transcript, topicKeywords, meta)
+      // Short video below split threshold — single article from full transcript
+      console.log(`[youtube-process] Generating single article (below split threshold)`)
+      const result = await aiService.generateArticleFromTranscript(transcript, topicKeywords, { ...meta, url: videoUrl })
       console.log(`[youtube-process] AI generated article: "${result.title}"`)
 
       const article = await createArticleFromResult(result, videoUrl, jobRun?.id)
       console.log(`[youtube-process] Created article "${article.title}" (${article.id})`)
 
-      // Update JobRun to COMPLETED
       if (jobRun) {
         await prisma.jobRun.update({
           where: { id: jobRun.id },

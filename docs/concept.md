@@ -113,32 +113,40 @@ Step 5 — Smart Splitting (for long content)
   understood before any splitting decision is made:
 
   Phase 1 — Chunk Analysis:
-    The full transcript is split into 8,000-char chunks. Every chunk is
+    The full transcript is split into 24,000-char chunks. Every chunk is
     individually sent to the AI (in parallel batches of 5) which returns a
     topicName, summary, key concepts, and entities for that chunk.
     Nothing is skipped — every character is seen.
 
-  Phase 2 — Content Map Segmentation:
-    The AI receives a complete indexed map of all chunks (all summaries,
-    topics, entities) and groups them into 2-5 topic-based segments.
-    Related sub-topics (e.g. "startup history" + "building the startup")
-    are kept in the same segment. Boundaries are exact char positions
-    derived from chunk indices — no percentage guessing.
+  Phase 2 — Content Map Segmentation (Topic-Driven, No Fixed Count):
+    The AI receives a complete indexed map of all chunks and decides how
+    many segments to create based purely on content. If 8 distinct topics
+    are found → 8 articles. If 1 deep topic → 1 long article. No count is
+    forced. Boundaries are exact char positions from chunk indices.
+    If the AI returns a single unified topic, the full video is wrapped as
+    one segment and still processed through the full pipeline.
 
   Phase 3 — Article Generation:
-    For each segment, proportional raw text is sampled from every chunk
-    in that segment (actual verbatim transcript words, not summaries).
-    The AI writes each article from real content across the full segment.
+    For each segment, the FULL raw text of every chunk in that segment is
+    assembled (up to 80,000 chars). The AI writes each article from real
+    verbatim video content — not summaries, not samples.
+    Each article targets a minimum of 1,500 words.
+    Token output is overridden to 12,000 to prevent truncation.
 
-  Short videos (under the thresholds) skip all this and generate 1 article.
+  Short videos (under the thresholds) skip all this and generate 1 article
+  from the first 40,000 chars of the transcript.
 
-Step 6 — AI Writing (Claude)
-  For each segment (or for each news item), the worker sends the text to
-  Claude AI (Anthropic's model) with a detailed prompt that says:
-  "Write a high-quality, SEO-optimised news article about this. Include
-  a compelling title, a meta description, proper headings, naturally
-  embedded keywords, and a clear structure."
-  Claude responds with a fully written article.
+Step 6 — AI Writing (Journalist Voice)
+  For each segment (or for each news item), the worker sends the full
+  transcript text to the AI with a prompt that instructs it to write as a
+  journalist covering the video — not as someone analysing a document.
+  Key rules enforced in every prompt:
+  - Never mention "transcript" or "transcription" in the article
+  - Reference the video naturally: "In this episode, [person] explained..."
+  - Include a markdown link to the YouTube source URL once
+  - Write as a TL;DW (Too Long; Didn't Watch) — full value, no filler
+  The AI responds with a fully written, SEO-optimised article with a title,
+  meta description, keywords, category suggestion, and tags.
 
 Step 7 — Saved as Draft
   The finished article is saved to the database with the status "DRAFT".
@@ -1826,7 +1834,7 @@ BLPOP again   ← back to waiting
 
 ### Smart Split AI Pipeline — Complete Technical Deep Dive
 
-This section explains exactly how a 3-hour YouTube video becomes 4 focused, SEO-optimised articles — with 100% of the video's content seen and understood by the AI.
+This section explains exactly how a 3-hour YouTube video becomes multiple focused, SEO-optimised articles — with 100% of the video's content seen and understood by the AI. The number of articles is determined dynamically by topic count, not by a fixed formula.
 
 #### The problem we're solving
 
@@ -1835,7 +1843,7 @@ A 3-hour video has roughly **150,000 characters** of transcript. If you send tha
 1. **Even large-context models have limits** — while o3-mini supports 200k tokens (~800k chars), sending 150k chars of raw transcript in one shot is expensive and slow.
 2. **More importantly: our old approach sent only 11k chars (7% of the video)** — the AI was essentially guessing segment boundaries based on the intro and outro. Everything in the middle was completely invisible.
 
-The new approach guarantees **100% coverage**: every character is read, understood, and represented.
+The current approach guarantees **100% coverage**: every character is read, understood, and represented.
 
 #### Phase 1 — Chunk Analysis (the "read everything" phase)
 
@@ -1882,10 +1890,10 @@ interface ChunkMeta {
   startPos:    number    // exact character start position
   endPos:      number    // exact character end position
   charCount:   number    // endPos - startPos
-  topicName:   string    // "Kingfisher Airlines Launch"
+  topicName:   string    // "KGB Recruitment and Training"
   summary:     string    // 2-3 sentence description of what's actually said
-  concepts:    string[]  // ["aviation", "brand building", "market gap"]
-  entities:    string[]  // ["Vijay Mallya", "Air Deccan", "2005"]
+  concepts:    string[]  // ["espionage", "Cold War", "tradecraft"]
+  entities:    string[]  // ["Jack Barsky", "KGB", "East Germany"]
 }
 ```
 
@@ -1893,132 +1901,120 @@ After all batches complete, you have a `contentMap: ChunkMeta[]` — a complete 
 
 #### Phase 2 — Content Map Segmentation (the "decide where to split" phase)
 
-The content map (7 × ~200 chars of metadata = ~1,400 chars total) is sent to the AI for grouping:
+The content map is sent to the AI for grouping. **Crucially, there is no fixed segment count** — the AI is instructed to let the topics decide:
 
 ```
-You are segmenting a 180-minute video into topic-based article sections.
+Your job: create exactly as many segments as the content naturally warrants.
+Let the TOPICS decide — not a target number.
 
-VIDEO: "Vijay Mallya Podcast" by Raj Shamani
-
-COMPLETE CONTENT MAP:
-Chunk 0 [chars 0–24000]: Introduction & Early Life
-  Speaker introduces himself, discusses childhood in Kolkata...
-  Concepts: childhood, education, family
-  Entities: Vijay Mallya, Kolkata, United Breweries
-
-Chunk 1 [chars 24000–48000]: Entry into Aviation
-  Speaker describes seeing an opportunity in Indian aviation in 2005...
-  Concepts: aviation, market gap, startup vision
-  Entities: Kingfisher Airlines, Air Deccan
-
-Chunk 2 [chars 48000–72000]: Kingfisher Growth and Brand
-  Peak years of Kingfisher Airlines. Expansion strategy...
-  Concepts: airline expansion, premium branding, fleet size
-  Entities: Kingfisher, DGCA, Mumbai
-
-... (all 7 chunks)
-
-Group these 7 chunks into 2-5 major segments. Rules:
-- Related sub-topics (e.g. "startup history" + "building the startup") = SAME segment
-- Only split when topic genuinely changes (startup → cricket business = different segment)
-- Each segment needs enough content for 500+ word article
+SPLITTING RULES:
+- Every genuinely distinct major topic = its own segment/article
+  → If 8 different subjects are discussed, create 8 segments
+  → If 10 different stories are told, create 10 segments
+- One topic explored deeply throughout = fewer, longer articles
+  → If it's all one continuous story with phases, keep it 1-2 segments
+- NEVER merge two clearly different topics just to keep count low
+- NEVER split a single continuous discussion just to create more articles
+- Each segment needs at least 2 chunks so there's enough for a 1500+ word article
+- Every chunk must belong to exactly one segment — no gaps, no overlap
 ```
 
-The AI returns:
+The AI for a 3hr 17min spy podcast (7 chunks) might return:
 ```json
 {
   "shouldSplit": true,
-  "reason": "Four distinct life phases covering business, crisis, sports, and reflection",
+  "reason": "Five distinct topics: spy recruitment, undercover life, FBI confrontation, post-spy reinvention, and current geopolitics",
   "segments": [
-    { "title": "Early Life and Aviation Ambition", "chunkStart": 0, "chunkEnd": 1 },
-    { "title": "Kingfisher: Rise and Golden Era",  "chunkStart": 2, "chunkEnd": 3 },
-    { "title": "Financial Crisis and Legal Battles","chunkStart": 4, "chunkEnd": 5 },
-    { "title": "Life After Kingfisher: RCB and Lessons", "chunkStart": 6, "chunkEnd": 6 }
+    { "title": "KGB Recruitment and Spy Training",     "chunkStart": 0, "chunkEnd": 1 },
+    { "title": "Living a Double Life in America",      "chunkStart": 2, "chunkEnd": 3 },
+    { "title": "FBI Discovery and Defection",          "chunkStart": 4, "chunkEnd": 4 },
+    { "title": "Life After the KGB: Reinvention",      "chunkStart": 5, "chunkEnd": 5 },
+    { "title": "Putin, Trump, and Russian Intelligence","chunkStart": 6, "chunkEnd": 6 }
   ]
 }
 ```
 
-The `chunkStart` / `chunkEnd` values are converted to exact character positions using the content map:
+If the AI returns `shouldSplit: false` (one unified topic), the code wraps the full transcript as one segment and still routes it through the full pipeline — it does NOT fall back to the simpler 40k path.
+
+The `chunkStart` / `chunkEnd` values are converted to exact character positions:
 ```typescript
 startPosition = contentMap[seg.chunkStart].startPos   // exact, no guessing
 endPosition   = contentMap[seg.chunkEnd].endPos        // exact, no guessing
 ```
 
-This is vastly more accurate than the old approach which asked the AI to guess percentages (0–100) when it had only seen 7% of the video.
-
 #### How related sub-topics stay together
 
-Consider these two consecutive chunks:
 ```
-Chunk 1: topicName = "Startup History"
-         summary   = "Speaker talks about how the idea for Kingfisher originated in 2003..."
-         entities  = ["Vijay Mallya", "United Breweries", "2003"]
+Chunk 0: topicName = "KGB Recruitment and Background"
+         summary   = "Barsky describes being identified by the KGB, the assessment..."
+         entities  = ["Jack Barsky", "KGB", "East Germany"]
 
-Chunk 2: topicName = "Building the Airline"
-         summary   = "Speaker describes assembling the team, buying aircraft, DGCA licensing..."
-         entities  = ["Vijay Mallya", "Kingfisher Airlines", "DGCA"]
+Chunk 1: topicName = "Spy Training and Deployment"
+         summary   = "Barsky undergoes language training, creates his cover identity..."
+         entities  = ["Jack Barsky", "KGB", "New York", "William Barsky"]
 ```
 
-The segmentation AI sees both summaries in the same prompt. It reasons:
-- Both involve Vijay Mallya building Kingfisher
-- They're sequential phases of the same story (origin → execution)
-- Entities overlap (same person, same company)
-- Splitting them would create two incomplete articles neither of which makes sense alone
+The segmentation AI sees both summaries together and reasons:
+- Both involve the same spy-becoming arc (recruited → trained → deployed)
+- Entities overlap (same person, same mission)
+- Splitting them would create two incomplete articles
 
-Result: chunks 1 and 2 → **one segment** → one article covering the full "how Kingfisher was born and built" story.
+Result: chunks 0 and 1 → **one segment** → one article covering the full "from East German to undercover KGB agent" story.
 
-The segmentation prompt explicitly instructs: *"Different phases of the same story = same segment. Only split when the topic genuinely changes."*
+#### Phase 3 — Article Generation with Full Raw Transcript Text
 
-#### Phase 3 — Article Generation with Proportional Raw Text Sampling
+For each segment, the article generator receives the **complete verbatim text** of every chunk in that segment — not proportional samples, not summaries. The actual words spoken.
 
-For each segment, the article generator receives **actual verbatim transcript text** sampled proportionally from every chunk in the segment.
+```typescript
+const MAX_SEGMENT_INPUT = 80000  // max chars per article generation call
+```
 
-Example: Segment 2 spans chunks 2–3 (2 chunks × 24,000 chars = 48,000 chars of actual transcript).
-Budget: 8,000 chars per article generation call (safe, well within o3-mini limits).
-Sample per chunk: 8,000 ÷ 2 = **4,000 chars per chunk** (but we use `SAMPLE_PER_CHUNK = 2500` as a safe cap).
+Example: Segment 2 spans chunks 2–3 (2 × 24,000 = 48,000 chars). Fits easily in 80,000 char budget.
 
 ```
-[Part 1 — Kingfisher Growth and Brand]
-"...we launched in May 2005. I wanted it to feel completely different
- from Indian Airlines. The seats were wider, the food was actually good.
- We hired VJs as cabin crew — young, vibrant. People noticed. Within six
- months we had 18% market share. The Kingfisher brand helped enormously..."
-[2500 chars of real transcript from chunk 2]
+[Part 1 — Life Undercover in America]
+"...so I built this cover story piece by piece. I got a social security
+ number, started working at a tech company in New Jersey. My colleagues
+ had no idea. My neighbours had no idea. Even my wife didn't know for
+ years. The psychological weight of it was enormous..."
+[full 24,000 chars of chunk 2]
 
 ---
 
-[Part 2 — Airline Expansion Strategy]
-"...by 2007 we had 60 aircraft on order. Air Deccan acquisition was
- strategic — their low-cost routes + our premium brand = full spectrum.
- The merger gave us 30% of Indian aviation. But debt started piling up..."
-[2500 chars of real transcript from chunk 3]
+[Part 2 — Discovery and FBI Confrontation]
+"...the FBI had been watching me for a while before they approached.
+ They came to my house one morning in 1997. I had a daughter by then.
+ That changed everything. I looked at the agent and said 'I think we
+ need to have a conversation'..."
+[full 24,000 chars of chunk 3]
 ```
 
-Total: 5,000 chars of real verbatim content from across the entire segment. The AI writes the article from actual words spoken in the video — not summaries, not guesses.
-
-**Why not send all 48,000 chars?**
-
-You could with o3-mini (it handles 800k chars). But 5,000 representative chars from both chunks is enough for a quality 600-word article, and it keeps each generation call fast and cheap. The `SAMPLE_PER_CHUNK` constant can be raised if higher verbatim fidelity is needed.
+The prompt also enforces **journalist voice** — the article must read like coverage of a video, not analysis of a document:
+- Never mention "transcript" or "transcription"
+- Write: "In this episode, Barsky revealed..." not "The transcript shows..."
+- Include one markdown link to the YouTube URL for attribution
+- Minimum 1,500 words per article
+- Output token override: 12,000 (ignores DB config's 4,000 limit)
 
 #### The complete smart split AI call count
 
-For a 150k char, 180-minute video producing 4 articles:
+For a 144k char, 197-minute video producing 5 articles:
 
 ```
 Phase 1: 7 chunk analysis calls (2 batches: 5 parallel + 2 parallel)
 Phase 2: 1 segmentation call
-Phase 3: 4 article generation calls (one per segment)
+Phase 3: 5 article generation calls (one per segment)
 ─────────────────────────────────────────────────────
-Total:   12 AI calls
+Total:   13 AI calls
 
-Compare to old approach:
-Phase 1: 1 call (first 8k + last 3k chars only — 7% coverage)
-Phase 2: 4 article generation calls
+Compare to old approach for same video:
+Phase 1: 1 call (first 6k chars only — 4% coverage)
+Phase 2: 2 article generation calls (hardcoded "2-5" → AI chose 2)
 ─────────────────────────────────────────────────────
-Total:   5 AI calls, but with deeply inaccurate segmentation
+Total:   3 AI calls, with 96% of video invisible to the AI
 ```
 
-The extra 7 calls in Phase 1 are cheap (small JSON outputs) and run in parallel. The quality improvement is massive.
+The extra calls in Phase 1 are cheap (small JSON outputs) and run in parallel. The quality difference is dramatic.
 
 ---
 
