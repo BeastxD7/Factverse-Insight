@@ -135,7 +135,8 @@ async function processYoutubeVideo(job: Job<YoutubeProcessPayload>): Promise<voi
           transcript,
           segment,
           { ...meta, url: videoUrl },
-          topicKeywords
+          topicKeywords,
+          splitAnalysis.contentMap
         )
 
         const article = await createArticleFromResult(result, videoUrl, jobRun?.id)

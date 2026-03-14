@@ -51,9 +51,20 @@ export const AI_PROVIDER_LABELS: Record<AIProvider, string> = {
 
 // ─── Transcript splitting ────────────────────────────────────────────────────
 
+export interface ChunkMeta {
+  chunkIndex: number
+  startPos: number
+  endPos: number
+  charCount: number
+  topicName: string    // e.g. "Kingfisher Airlines Launch"
+  summary: string      // 2-3 sentence summary of actual chunk content
+  concepts: string[]   // key themes/ideas in this chunk
+  entities: string[]   // people, places, orgs, products mentioned
+}
+
 export interface TranscriptSegment {
   title: string
-  startPosition: number // Approximate char position in transcript
+  startPosition: number // exact char position derived from chunk boundaries
   endPosition: number
   summary: string
   keyTopics: string[]
@@ -63,4 +74,5 @@ export interface TranscriptSplitResult {
   shouldSplit: boolean
   reason?: string
   segments: TranscriptSegment[]
+  contentMap: ChunkMeta[] // full chunk-by-chunk map of the entire transcript
 }

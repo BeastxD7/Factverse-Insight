@@ -107,15 +107,30 @@ Step 4 — Transcription (if video/audio)
   - For a news article or RSS item, there's no transcription needed —
     the text is already there.
 
-Step 5 — Splitting (for long content)
-  If the content is long (a 60-minute podcast, for example), it would make
-  a terrible single article. So the worker splits it into segments:
-  - Under 10 minutes → 1 article
-  - 10–20 minutes → 2 articles
-  - 20–40 minutes → 3 articles
-  - 40–60 minutes → 4 articles
-  - Over 60 minutes → 5 or more articles
-  Each segment covers a distinct topic or chapter from the content.
+Step 5 — Smart Splitting (for long content)
+  If the transcript is over 80,000 chars OR the video is over 90 minutes,
+  the system runs a three-phase pipeline to ensure 100% of the content is
+  understood before any splitting decision is made:
+
+  Phase 1 — Chunk Analysis:
+    The full transcript is split into 8,000-char chunks. Every chunk is
+    individually sent to the AI (in parallel batches of 5) which returns a
+    topicName, summary, key concepts, and entities for that chunk.
+    Nothing is skipped — every character is seen.
+
+  Phase 2 — Content Map Segmentation:
+    The AI receives a complete indexed map of all chunks (all summaries,
+    topics, entities) and groups them into 2-5 topic-based segments.
+    Related sub-topics (e.g. "startup history" + "building the startup")
+    are kept in the same segment. Boundaries are exact char positions
+    derived from chunk indices — no percentage guessing.
+
+  Phase 3 — Article Generation:
+    For each segment, proportional raw text is sampled from every chunk
+    in that segment (actual verbatim transcript words, not summaries).
+    The AI writes each article from real content across the full segment.
+
+  Short videos (under the thresholds) skip all this and generate 1 article.
 
 Step 6 — AI Writing (Claude)
   For each segment (or for each news item), the worker sends the text to
@@ -426,14 +441,21 @@ news-app/                          ← Bun workspace root
                    │                        │
                    │  1. Fetch raw content  │
                    │  2. Transcribe (if A/V)│
-                   │  3. Split by duration  │
-                   │  4. Generate articles  │
+                   │  3. Chunk analysis     │
+                   │     (100% coverage)    │
+                   │  4. Content map →      │
+                   │     segment grouping   │
+                   │  5. Generate articles  │
+                   │     (proportional raw  │
+                   │      text per chunk)   │
                    └────────────┬───────────┘
                                 │
                                 ▼
                    ┌────────────────────────┐
                    │   Claude AI (Anthropic) │
                    │                        │
+                   │  analyzeChunk()        │
+                   │  segmentContentMap()   │
                    │  generateArticle()     │
                    │  rewriteAsArticle()    │
                    │  generateTrending()    │
@@ -1474,110 +1496,682 @@ describe("articlesService.findBySlug", () => {
 
 ---
 
-### Redis — The In-Memory Message Broker
+### Redis — The In-Memory Message Broker (Deep Dive)
 
-**What it is**
+#### What Redis actually is
 
-Redis is an in-memory key-value store. Unlike PostgreSQL (which writes everything to disk), Redis keeps data in RAM. This makes it incredibly fast — it can handle hundreds of thousands of operations per second. But it's not a replacement for a real database; it's a specialist tool for specific jobs.
+Redis stands for **Re**mote **Di**ctionary **S**erver. It is a key-value store that lives entirely in RAM (memory), not on disk. Think of it like a massive JavaScript object `{}` that:
+- Never forgets its contents even if your Node.js process restarts (it periodically saves to disk)
+- Can be accessed by multiple processes simultaneously (your Express server + all your workers)
+- Can store not just simple values but also lists, sorted sets, hashes, and pub/sub channels
 
-In NewsForge, Redis has one job: **holding the job queue**.
-
-**Why Redis for a queue?**
-
-When a background job needs to happen (e.g. "process this YouTube video"), you need somewhere reliable to put that task so it isn't lost even if the server crashes. You could put it in PostgreSQL, but that's slow and adds unnecessary load to your main database. Redis is perfect for this because:
-
-- It's blazing fast (reads/writes in microseconds)
-- It supports list and sorted-set data structures natively — which is exactly what a job queue needs (push to back, pop from front, sorted by priority/delay)
-- It persists data to disk periodically (so jobs survive server restarts)
-- It supports pub/sub (publish/subscribe), which BullMQ uses to notify workers of new jobs
-
-**How Redis fits in our system**
+The key difference between Redis and PostgreSQL:
 
 ```
-Express server starts
-        │
-        ▼
-BullMQ Queue connects to Redis
-(creates a key like "bull:youtube-process:waiting")
-        │
-        ▼
-Admin triggers manual ingest (YouTube URL)
-        │
-        ▼
-Express adds job to BullMQ queue
-→ BullMQ pushes a JSON blob into Redis list
-        │
-        ▼
-BullMQ Worker (listening on Redis) picks up the job
-→ Processes it
-→ Marks it complete in Redis
-→ Result stored in PostgreSQL
+PostgreSQL:
+  Every write → goes to disk → slow (milliseconds)
+  Perfect for: permanent structured data (articles, users, tags)
+  Bad for: real-time queuing (too slow, too heavy)
+
+Redis:
+  Every write → stays in RAM → extremely fast (microseconds)
+  Perfect for: queuing, caching, pub/sub, rate limiting
+  Bad for: permanent business data (RAM is expensive, data can be lost on power failure)
 ```
 
-Redis itself runs in a Docker container (`docker-compose.yml`) on port 6379. We connect to it with the `REDIS_URL` environment variable.
+#### Why does a job queue need Redis specifically?
+
+Imagine you're running a restaurant kitchen. Orders come in from customers (the Express API), and cooks (workers) need to pick them up and prepare them. You need a "ticket rail" — the strip above the counter where order tickets hang.
+
+That ticket rail is Redis.
+
+Without Redis, the problem is:
+- Your Express server handles the HTTP request in ~10ms
+- Processing a YouTube video takes 2–5 minutes
+- You CANNOT block the HTTP request for 5 minutes (client would time out)
+- You CANNOT use a global variable (crashes are lost, multiple server instances can't share it)
+- You CANNOT use PostgreSQL for this (too slow, wrong tool)
+
+Redis solves all three:
+- HTTP request completes in <100ms (just pushes job into Redis and returns)
+- Job lives in Redis safely even if the server crashes
+- Multiple workers on multiple machines can all read from the same Redis queue
+
+#### What Redis actually stores for BullMQ
+
+When BullMQ adds a job to a queue, it creates these keys in Redis:
+
+```
+bull:youtube-process:1                → the job data itself (JSON)
+bull:youtube-process:waiting          → list of job IDs waiting to run
+bull:youtube-process:active           → list of job IDs currently being processed
+bull:youtube-process:completed        → sorted set of completed job IDs
+bull:youtube-process:failed           → sorted set of failed job IDs
+bull:youtube-process:delayed          → sorted set of jobs waiting for retry delay
+bull:youtube-process:id               → counter for auto-incrementing job IDs
+```
+
+So when you call `youtubeProcessQueue.add("process-video", { videoId: "abc" })`:
+1. BullMQ increments `bull:youtube-process:id` → gets ID `42`
+2. Stores `bull:youtube-process:42` = `{ name: "process-video", data: { videoId: "abc" }, opts: { attempts: 3 } }`
+3. Pushes `42` to `bull:youtube-process:waiting` list
+
+When the worker picks it up:
+1. BullMQ moves `42` from `waiting` → `active`
+2. Worker runs your processing function
+3. On success: moves `42` from `active` → `completed`
+4. On failure: moves `42` from `active` → `delayed` (waits for backoff), then back to `waiting`
+
+#### What happens if the server crashes mid-job?
+
+This is the most important property of Redis + BullMQ. If your server crashes while processing job `42`:
+- `42` remains in the `active` list in Redis
+- When BullMQ reconnects, it sees `42` is stuck in `active` with no living worker
+- After a "stall detection" timeout (default 30 seconds), BullMQ automatically moves it back to `waiting`
+- The job is retried — **nothing is lost**
+
+Without this, a crashed server would silently drop whatever job it was working on.
+
+#### Redis in our Docker setup
+
+```yaml
+# docker-compose.yml
+redis:
+  image: redis:7-alpine
+  ports:
+    - "6379:6379"
+  volumes:
+    - redis_data:/data        # persists to disk so jobs survive docker restart
+  command: redis-server --appendonly yes  # AOF persistence mode
+```
+
+`appendonly yes` tells Redis to write every operation to an append-only file on disk. This means even if Docker restarts or the machine reboots, Redis reloads the full job state from that file.
+
+We connect with `REDIS_URL=redis://localhost:6379` in `.env`.
 
 ---
 
-### BullMQ — The Job Queue (Node.js equivalent of Celery)
+### BullMQ — The Job Queue (Deep Dive)
 
-**The Python analogy**
+#### The analogy: a post office sorting room
 
-If you've used Python, you've probably heard of **Celery** — a distributed task queue that lets you run jobs asynchronously (in the background). BullMQ is the Node.js/TypeScript equivalent. Both use Redis as their backend.
+Imagine a post office:
+- **Letters arrive** (HTTP requests trigger jobs)
+- **Sorting bins** hold letters by type: "international", "local", "express" (our queues: `youtube-process`, `news-fetch`, etc.)
+- **Postal workers** pick up letters from their assigned bin and deliver them (our workers)
+- **A supervisor** adds new letters to the international bin every 30 minutes without anyone asking (our scheduled/repeatable jobs)
+- If a delivery fails (recipient not home), the letter goes back to the bin after a wait (retry with backoff)
 
-| Python world | Node.js world (NewsForge) |
-|---|---|
-| Celery | BullMQ |
-| Redis | Redis (same!) |
-| `@celery.task` decorator | Worker class with `process()` |
-| `task.delay()` | `queue.add(name, data)` |
-| Celery Beat (scheduler) | BullMQ `repeat` option |
-| Flower (monitor) | Bull Board (future) |
+BullMQ is the entire post office system. Redis is the physical building where all the bins live.
 
-**Core concepts in BullMQ**
+#### The four core BullMQ concepts
 
-```
-Queue  → A named channel where jobs live. Think of it as a to-do list.
-         Example: "youtube-process" queue holds all YT processing tasks.
+**1. Queue — the named channel**
 
-Job    → A single unit of work. JSON data describing what to do.
-         Example: { videoId: "abc123", topicId: "tech-001" }
-
-Worker → A function that consumes jobs from a queue.
-         It runs: await processJob(job.data)
-
-Scheduler → Adds repeat jobs on a cron schedule.
-             Example: add a "fetch news" job every 30 minutes.
-```
-
-**How we use BullMQ**
-
-All queues are defined in `apps/server/src/workers/queues.ts` — a single registry. Workers import queues from there. This prevents multiple Queue instances pointing to the same Redis key (which would cause bugs).
+A Queue is a connection to Redis that lets you add jobs. It does NOT process jobs. It is purely a producer.
 
 ```typescript
-// queues.ts — the single registry
-export const newsQueue    = new Queue("news-fetch",    { connection })
-export const rssQueue     = new Queue("rss-fetch",     { connection })
-export const ytQueue      = new Queue("youtube-process", { connection })
+// queues.ts
+const connection = { url: env.REDIS_URL, maxRetriesPerRequest: null }
 
-// news-fetch.worker.ts — imports from registry, never creates new Queue
-import { newsQueue } from "./queues"
-
-const worker = new Worker("news-fetch", async (job) => {
-  // process the job
-  await fetchAndGenerateArticles(job.data)
-}, { connection })
+export const youtubeProcessQueue = new Queue("youtube-process", {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: { type: "exponential", delay: 5000 },
+  },
+})
 ```
 
-**Retry policy — why exponential backoff?**
+Why one file for all queues? Because a Queue holds a Redis connection. If two files each create `new Queue("youtube-process", ...)`, you have two connections pointing to the same Redis keys — this wastes connections and can cause subtle race conditions. One registry file, one connection per queue.
 
-Every worker has `attempts: 3` and `backoff: { type: "exponential", delay: 5000 }`. If a job fails (network error, Claude API timeout, etc.):
+**2. Job — the unit of work**
 
-- Attempt 1 fails → wait 5 seconds → retry
-- Attempt 2 fails → wait 25 seconds → retry  (5² = 25)
-- Attempt 3 fails → wait 125 seconds → retry  (5³ = 125)
-- All 3 fail → job moves to "failed" list
+A job is just a name + a JSON payload. Nothing more.
 
-This is called **exponential backoff**. The idea is: if something is failing, hammering it immediately makes it worse (especially for rate-limited external APIs). Waiting longer between attempts gives the external service time to recover.
+```typescript
+// Anywhere in the server that needs to trigger work:
+await youtubeProcessQueue.add("process-video", {
+  videoId:  "dQw4w9WgXcQ",
+  videoUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  topicId:  "tech-001",        // optional
+})
+```
+
+The job name (`"process-video"`) is just for logging and filtering — it doesn't affect processing. The data object is what the worker receives.
+
+**3. Worker — the job consumer**
+
+A Worker is what actually runs your code. It:
+- Connects to Redis and listens for new jobs on a named queue
+- Picks up one job at a time (or N concurrent jobs if `concurrency: N`)
+- Calls your async function with `job.data`
+- Marks the job complete or failed based on whether the function resolves or throws
+
+```typescript
+// youtube-process.worker.ts
+const worker = new Worker(
+  "youtube-process",           // must match Queue name exactly
+  processYoutubeVideo,         // your async function
+  {
+    connection: { url: env.REDIS_URL, maxRetriesPerRequest: null },
+    concurrency: 2,            // process 2 videos simultaneously
+  }
+)
+
+async function processYoutubeVideo(job: Job<YoutubeProcessPayload>) {
+  // job.data = { videoId, videoUrl, topicId }
+  // job.id   = Redis job ID
+  // If this function throws → BullMQ marks it failed and retries
+  // If this function resolves → BullMQ marks it completed
+}
+```
+
+**Why `maxRetriesPerRequest: null`?**
+
+This is a quirk specific to BullMQ with ioredis (the Redis client it uses under the hood). BullMQ's workers use long-polling (blocking reads) on Redis — they sit and wait for new jobs to appear. By default, ioredis has a `maxRetriesPerRequest: 0` limit which would cause the blocking read to throw an error. Setting it to `null` disables this limit so the worker can block indefinitely waiting for work. Without this, workers crash immediately on startup.
+
+**4. Repeatable Jobs — the scheduler**
+
+Instead of running a cron service separately, BullMQ supports repeatable jobs built in. You add a job with a `repeat` option and BullMQ automatically re-adds it to the queue on schedule:
+
+```typescript
+// To be added in scheduler.ts (Phase 4)
+await newsQueue.add(
+  "fetch-news",
+  { sources: ["newsapi", "gnews"] },
+  {
+    repeat: { every: 30 * 60 * 1000 },   // every 30 minutes
+    jobId: "news-fetch-scheduler",         // stable ID prevents duplicates on restart
+  }
+)
+```
+
+BullMQ stores the repeat config in Redis. When the server restarts, it sees the repeat config still exists and continues scheduling. No separate cron daemon needed.
+
+#### The full job lifecycle
+
+```
+                         ┌─────────────────────┐
+                         │  queue.add(name, data)│
+                         └──────────┬──────────┘
+                                    │
+                                    ▼
+                         ┌─────────────────────┐
+                         │      WAITING        │  ← sitting in Redis list
+                         │  (in Redis queue)   │     waiting for a free worker
+                         └──────────┬──────────┘
+                                    │  worker picks it up
+                                    ▼
+                         ┌─────────────────────┐
+                         │       ACTIVE        │  ← worker is running the function
+                         │  (worker running)   │     job.data available, job.progress() works
+                         └────────┬────────────┘
+                                  │
+               ┌──────────────────┼──────────────────┐
+               │ function resolves│                   │ function throws
+               ▼                  │                   ▼
+  ┌─────────────────────┐         │      ┌────────────────────────┐
+  │     COMPLETED       │         │      │  attempts remaining?   │
+  │  (kept for 100 jobs)│         │      └──────────┬─────────────┘
+  └─────────────────────┘         │                 │
+                                  │         yes     │       no
+                                  │    ┌────────────┴────────────┐
+                                  │    ▼                         ▼
+                                  │  ┌───────────┐         ┌──────────┐
+                                  │  │  DELAYED  │         │  FAILED  │
+                                  │  │(backoff   │         │(kept for │
+                                  │  │ wait)     │         │ 200 jobs)│
+                                  │  └─────┬─────┘         └──────────┘
+                                  │        │ after delay
+                                  │        ▼
+                                  │    WAITING (retry)
+                                  │
+                                  │ server crash mid-job
+                                  │        ▼
+                                  │    STALLED → back to WAITING
+```
+
+#### Retry policy — why exponential backoff?
+
+All workers are configured with:
+```typescript
+attempts: 3
+backoff: { type: "exponential", delay: 5000 }
+```
+
+If a job fails (network error, AI API timeout, YouTube rate limit, etc.):
+
+```
+Attempt 1 fails → wait 5 seconds   → retry   (5¹ × base)
+Attempt 2 fails → wait 25 seconds  → retry   (5² × base)
+Attempt 3 fails → wait 125 seconds → retry   (5³ × base)
+All 3 fail      → job → FAILED list (stays in Redis, visible in admin)
+```
+
+Why exponential? If YouTube's API is overloaded and returns 429 Too Many Requests, hitting it again immediately makes things worse for everyone. Waiting progressively longer gives external services time to recover. This is industry-standard practice for any system that calls external APIs.
+
+#### Concurrency — how many jobs run at once?
+
+```typescript
+const worker = new Worker("youtube-process", handler, {
+  concurrency: 2,   // process 2 videos at the same time
+})
+```
+
+`concurrency: 2` means the worker can hold 2 active jobs simultaneously. Both run in the same Node.js process but as separate async chains. Since most of the work is I/O (waiting for YouTube, waiting for the AI API), 2 concurrent jobs barely uses extra CPU but doubles throughput.
+
+For CPU-bound work you'd set this to 1. For purely I/O-bound work (like ours) you can go higher.
+
+#### Why NOT use setTimeout / setInterval instead of BullMQ?
+
+This is a fair question. Why not just:
+```typescript
+setInterval(fetchNews, 30 * 60 * 1000)
+```
+
+Problems with that approach:
+1. **No persistence** — if the server restarts, the interval is gone. You'd miss 30 minutes of news.
+2. **No retry** — if `fetchNews` throws, it's gone. No automatic retry.
+3. **No visibility** — you can't see "what jobs ran, what failed, what's pending" without building a whole system.
+4. **No distributed support** — if you run 2 server instances, both intervals fire simultaneously → duplicate processing.
+5. **No backpressure** — if a job takes longer than its interval (a 2-min video processing takes longer than a 10-min poll), jobs pile up with no control.
+
+BullMQ solves all of these out of the box.
+
+---
+
+### Worker Architecture — How Everything Starts Up
+
+When the Express server starts (`apps/server/src/index.ts`), it does two things:
+1. Registers all HTTP routes
+2. Starts all workers
+
+```typescript
+// index.ts (simplified)
+import { startYoutubeProcessWorker } from "./workers/youtube-process.worker"
+
+const app = express()
+// ... routes ...
+
+app.listen(PORT, () => {
+  startYoutubeProcessWorker()   // starts listening for jobs
+  // Phase 4: startYoutubeMonitorWorker()
+  // Phase 4: startNewsFetchWorker()
+  // etc.
+})
+```
+
+Workers don't "poll" in a loop. They use Redis's `BLPOP` command — a blocking left-pop. This means: "wait here until something appears in this list, then give it to me." It uses zero CPU while waiting. The moment a job is added to the queue, Redis wakes up the worker instantly.
+
+```
+Worker starts
+    │
+    ▼
+BLPOP "bull:youtube-process:waiting"   ← blocks here, uses 0 CPU
+    │
+    │  (3 hours later, admin submits a URL)
+    │
+    ▼
+Redis returns job ID immediately
+    │
+    ▼
+Worker processes job
+    │
+    ▼
+BLPOP again   ← back to waiting
+```
+
+---
+
+### Smart Split AI Pipeline — Complete Technical Deep Dive
+
+This section explains exactly how a 3-hour YouTube video becomes 4 focused, SEO-optimised articles — with 100% of the video's content seen and understood by the AI.
+
+#### The problem we're solving
+
+A 3-hour video has roughly **150,000 characters** of transcript. If you send that to an AI and ask "split this into topics", two things go wrong:
+
+1. **Even large-context models have limits** — while o3-mini supports 200k tokens (~800k chars), sending 150k chars of raw transcript in one shot is expensive and slow.
+2. **More importantly: our old approach sent only 11k chars (7% of the video)** — the AI was essentially guessing segment boundaries based on the intro and outro. Everything in the middle was completely invisible.
+
+The new approach guarantees **100% coverage**: every character is read, understood, and represented.
+
+#### Phase 1 — Chunk Analysis (the "read everything" phase)
+
+The full transcript is divided into **24,000-character chunks**. Each chunk is sent to the AI in a separate call. For a 150k char video:
+
+```
+150,000 ÷ 24,000 = 7 chunks (rounded up)
+
+Chunk 0: chars 0      → 24,000   → AI reads all 24,000 chars → returns ChunkMeta
+Chunk 1: chars 24,000 → 48,000   → AI reads all 24,000 chars → returns ChunkMeta
+Chunk 2: chars 48,000 → 72,000   → AI reads all 24,000 chars → returns ChunkMeta
+Chunk 3: chars 72,000 → 96,000   → AI reads all 24,000 chars → returns ChunkMeta
+Chunk 4: chars 96,000 → 120,000  → AI reads all 24,000 chars → returns ChunkMeta
+Chunk 5: chars 120,000→ 144,000  → AI reads all 24,000 chars → returns ChunkMeta
+Chunk 6: chars 144,000→ 150,000  → AI reads all  6,000 chars → returns ChunkMeta
+```
+
+All 7 chunks are processed in **parallel batches of 5** (to avoid rate-limiting):
+- Batch 1: chunks 0–4 → 5 parallel AI calls → wait → push results
+- Batch 2: chunks 5–6 → 2 parallel AI calls → wait → push results
+
+The prompt for each chunk:
+```
+You are extracting metadata from a section of a video transcript.
+
+SECTION 3 of 7 | chars 48000–72000
+
+TRANSCRIPT:
+[full 24,000 chars of actual transcript text]
+
+Return ONLY a JSON object:
+{
+  "topicName": "2-5 word topic name for this section",
+  "summary": "2-3 sentences describing exactly what is discussed here",
+  "concepts": ["theme1", "theme2", "theme3"],
+  "entities": ["person/place/org/product mentioned"]
+}
+```
+
+Each chunk returns a `ChunkMeta` object:
+```typescript
+interface ChunkMeta {
+  chunkIndex:  number    // 0-based (0, 1, 2, ...)
+  startPos:    number    // exact character start position
+  endPos:      number    // exact character end position
+  charCount:   number    // endPos - startPos
+  topicName:   string    // "Kingfisher Airlines Launch"
+  summary:     string    // 2-3 sentence description of what's actually said
+  concepts:    string[]  // ["aviation", "brand building", "market gap"]
+  entities:    string[]  // ["Vijay Mallya", "Air Deccan", "2005"]
+}
+```
+
+After all batches complete, you have a `contentMap: ChunkMeta[]` — a complete indexed map of 100% of the video.
+
+#### Phase 2 — Content Map Segmentation (the "decide where to split" phase)
+
+The content map (7 × ~200 chars of metadata = ~1,400 chars total) is sent to the AI for grouping:
+
+```
+You are segmenting a 180-minute video into topic-based article sections.
+
+VIDEO: "Vijay Mallya Podcast" by Raj Shamani
+
+COMPLETE CONTENT MAP:
+Chunk 0 [chars 0–24000]: Introduction & Early Life
+  Speaker introduces himself, discusses childhood in Kolkata...
+  Concepts: childhood, education, family
+  Entities: Vijay Mallya, Kolkata, United Breweries
+
+Chunk 1 [chars 24000–48000]: Entry into Aviation
+  Speaker describes seeing an opportunity in Indian aviation in 2005...
+  Concepts: aviation, market gap, startup vision
+  Entities: Kingfisher Airlines, Air Deccan
+
+Chunk 2 [chars 48000–72000]: Kingfisher Growth and Brand
+  Peak years of Kingfisher Airlines. Expansion strategy...
+  Concepts: airline expansion, premium branding, fleet size
+  Entities: Kingfisher, DGCA, Mumbai
+
+... (all 7 chunks)
+
+Group these 7 chunks into 2-5 major segments. Rules:
+- Related sub-topics (e.g. "startup history" + "building the startup") = SAME segment
+- Only split when topic genuinely changes (startup → cricket business = different segment)
+- Each segment needs enough content for 500+ word article
+```
+
+The AI returns:
+```json
+{
+  "shouldSplit": true,
+  "reason": "Four distinct life phases covering business, crisis, sports, and reflection",
+  "segments": [
+    { "title": "Early Life and Aviation Ambition", "chunkStart": 0, "chunkEnd": 1 },
+    { "title": "Kingfisher: Rise and Golden Era",  "chunkStart": 2, "chunkEnd": 3 },
+    { "title": "Financial Crisis and Legal Battles","chunkStart": 4, "chunkEnd": 5 },
+    { "title": "Life After Kingfisher: RCB and Lessons", "chunkStart": 6, "chunkEnd": 6 }
+  ]
+}
+```
+
+The `chunkStart` / `chunkEnd` values are converted to exact character positions using the content map:
+```typescript
+startPosition = contentMap[seg.chunkStart].startPos   // exact, no guessing
+endPosition   = contentMap[seg.chunkEnd].endPos        // exact, no guessing
+```
+
+This is vastly more accurate than the old approach which asked the AI to guess percentages (0–100) when it had only seen 7% of the video.
+
+#### How related sub-topics stay together
+
+Consider these two consecutive chunks:
+```
+Chunk 1: topicName = "Startup History"
+         summary   = "Speaker talks about how the idea for Kingfisher originated in 2003..."
+         entities  = ["Vijay Mallya", "United Breweries", "2003"]
+
+Chunk 2: topicName = "Building the Airline"
+         summary   = "Speaker describes assembling the team, buying aircraft, DGCA licensing..."
+         entities  = ["Vijay Mallya", "Kingfisher Airlines", "DGCA"]
+```
+
+The segmentation AI sees both summaries in the same prompt. It reasons:
+- Both involve Vijay Mallya building Kingfisher
+- They're sequential phases of the same story (origin → execution)
+- Entities overlap (same person, same company)
+- Splitting them would create two incomplete articles neither of which makes sense alone
+
+Result: chunks 1 and 2 → **one segment** → one article covering the full "how Kingfisher was born and built" story.
+
+The segmentation prompt explicitly instructs: *"Different phases of the same story = same segment. Only split when the topic genuinely changes."*
+
+#### Phase 3 — Article Generation with Proportional Raw Text Sampling
+
+For each segment, the article generator receives **actual verbatim transcript text** sampled proportionally from every chunk in the segment.
+
+Example: Segment 2 spans chunks 2–3 (2 chunks × 24,000 chars = 48,000 chars of actual transcript).
+Budget: 8,000 chars per article generation call (safe, well within o3-mini limits).
+Sample per chunk: 8,000 ÷ 2 = **4,000 chars per chunk** (but we use `SAMPLE_PER_CHUNK = 2500` as a safe cap).
+
+```
+[Part 1 — Kingfisher Growth and Brand]
+"...we launched in May 2005. I wanted it to feel completely different
+ from Indian Airlines. The seats were wider, the food was actually good.
+ We hired VJs as cabin crew — young, vibrant. People noticed. Within six
+ months we had 18% market share. The Kingfisher brand helped enormously..."
+[2500 chars of real transcript from chunk 2]
+
+---
+
+[Part 2 — Airline Expansion Strategy]
+"...by 2007 we had 60 aircraft on order. Air Deccan acquisition was
+ strategic — their low-cost routes + our premium brand = full spectrum.
+ The merger gave us 30% of Indian aviation. But debt started piling up..."
+[2500 chars of real transcript from chunk 3]
+```
+
+Total: 5,000 chars of real verbatim content from across the entire segment. The AI writes the article from actual words spoken in the video — not summaries, not guesses.
+
+**Why not send all 48,000 chars?**
+
+You could with o3-mini (it handles 800k chars). But 5,000 representative chars from both chunks is enough for a quality 600-word article, and it keeps each generation call fast and cheap. The `SAMPLE_PER_CHUNK` constant can be raised if higher verbatim fidelity is needed.
+
+#### The complete smart split AI call count
+
+For a 150k char, 180-minute video producing 4 articles:
+
+```
+Phase 1: 7 chunk analysis calls (2 batches: 5 parallel + 2 parallel)
+Phase 2: 1 segmentation call
+Phase 3: 4 article generation calls (one per segment)
+─────────────────────────────────────────────────────
+Total:   12 AI calls
+
+Compare to old approach:
+Phase 1: 1 call (first 8k + last 3k chars only — 7% coverage)
+Phase 2: 4 article generation calls
+─────────────────────────────────────────────────────
+Total:   5 AI calls, but with deeply inaccurate segmentation
+```
+
+The extra 7 calls in Phase 1 are cheap (small JSON outputs) and run in parallel. The quality improvement is massive.
+
+---
+
+### The Complete End-to-End Request Flow (Updated with Smart Split)
+
+#### Path A — Short video (< 80k chars, < 90 min) → Single article
+
+```
+Admin pastes YouTube URL in /admin/ingest
+        │
+        ▼
+IngestForm.tsx (Client Component)
+  └── ingestYoutubeUrl(url)  [Server Action]
+        │
+        ▼
+ingest/actions.ts
+  └── serverApi.post("/admin/ingest/youtube", { url })
+  └── HTTP POST to Express:3001 with Bearer API_SECRET header
+        │
+        ▼
+ingest.controller.ts (Express)
+  └── extractVideoId(url) → "dQw4w9WgXcQ"
+  └── prisma.jobRun.create({ type: "YOUTUBE_PROCESS", status: "PENDING" })
+  └── youtubeProcessQueue.add("process-video", { videoId, videoUrl })
+       └── BullMQ serializes job to JSON
+       └── pushes job ID to Redis list: bull:youtube-process:waiting
+  └── returns 201: { jobRunId, videoId, status: "PENDING" }
+        │
+        ▼
+Browser shows toast: "Video queued for processing"
+IngestForm starts polling getJobStatus(jobRunId) every 3 seconds
+        │
+        │  (meanwhile, in the background...)
+        ▼
+youtube-process.worker.ts (BullMQ Worker)
+  └── BLPOP on Redis wakes up — picks up job ID
+  └── moves job: waiting → active in Redis
+  └── prisma.jobRun.update({ status: "RUNNING" })
+  └── fetchVideoMeta(videoId) → { title, channelName, duration: 8 mins }
+  └── fetchTranscript(videoId) → { text: "...", estimatedDurationSecs: 480 }
+  └── transcript.length = 12,000 chars < MIN_CHARS_FOR_SPLIT (80,000)
+  └── aiService.analyzeAndSplitTranscript() → { shouldSplit: false }
+  └── aiService.generateArticleFromTranscript(transcript, keywords, meta)
+       └── prompt: [video meta + transcript.slice(0, 6000)] → Claude/o3-mini
+       └── returns JSON: { title, slug, content, keywords, category, tags }
+  └── prisma.article.create({ status: "DRAFT", sourceType: "YOUTUBE_VIDEO" })
+  └── prisma.jobRun.update({ status: "COMPLETED", result: { articleTitle } })
+  └── job moves: active → completed in Redis
+        │
+        ▼
+IngestForm polling detects COMPLETED
+  └── result = { articleTitle: "How Zerodha Changed..." }  ← SingleArticleResult
+  └── toast.success("Article generated!", { description: "How Zerodha Changed..." })
+  └── job card shows: "How Zerodha Changed..." + green Completed badge
+```
+
+---
+
+#### Path B — Long video (≥ 80k chars OR ≥ 90 min) → Smart Split → Multiple articles
+
+```
+[same steps 1–7 as Path A up to fetchTranscript]
+        │
+        ▼
+transcript.length = 150,000 chars ≥ MIN_CHARS_FOR_SPLIT
+        │
+        ▼
+aiService.analyzeAndSplitTranscript(transcript, meta)
+        │
+        ▼
+── PHASE 1: CHUNK ANALYSIS ──────────────────────────────────────────────
+  Split into 7 chunks (150k ÷ 24k chars each)
+
+  Batch 1 — 5 parallel AI calls:
+    Chunk 0 [0–24k]:    topicName="Introduction & Early Life",  entities=["Mallya"]
+    Chunk 1 [24k–48k]:  topicName="Entry into Aviation",        entities=["Kingfisher"]
+    Chunk 2 [48k–72k]:  topicName="Airline Growth & Brand",     entities=["DGCA"]
+    Chunk 3 [72k–96k]:  topicName="Peak Years & Expansion",     entities=["Air Deccan"]
+    Chunk 4 [96k–120k]: topicName="Debt Crisis Begins",         entities=["Banks", "SEBI"]
+
+  Batch 2 — 2 parallel AI calls:
+    Chunk 5 [120k–144k]:topicName="Legal Battles & Exile",      entities=["CBI", "London"]
+    Chunk 6 [144k–150k]:topicName="RCB & Life Lessons",         entities=["RCB", "IPL"]
+
+  contentMap = [ChunkMeta × 7]   ← 100% of transcript understood
+        │
+        ▼
+── PHASE 2: SEGMENTATION ────────────────────────────────────────────────
+  Send full contentMap (7 summaries, ~1400 chars total) to AI
+
+  AI groups chunks:
+    Segment 1: chunkStart=0, chunkEnd=1  → "Early Life & Aviation Ambition"
+    Segment 2: chunkStart=2, chunkEnd=3  → "Kingfisher Rise and Golden Era"
+    Segment 3: chunkStart=4, chunkEnd=5  → "Financial Crisis & Legal Battles"
+    Segment 4: chunkStart=6, chunkEnd=6  → "RCB, Life After Kingfisher"
+
+  Convert to char positions (exact, from contentMap):
+    Segment 1: startPosition=0,      endPosition=48,000
+    Segment 2: startPosition=48,000, endPosition=96,000
+    Segment 3: startPosition=96,000, endPosition=144,000
+    Segment 4: startPosition=144,000,endPosition=150,000
+        │
+        ▼
+── PHASE 3: ARTICLE GENERATION (sequential, one per segment) ────────────
+  Segment 1 → chunks 0–1 in contentMap
+    Sample: 2500 chars from chunk 0 raw text + 2500 chars from chunk 1 raw text
+    Prompt: focus="Early Life & Aviation Ambition" + sampled real transcript
+    AI returns: { title, slug, content, keywords, category, tags }
+    → prisma.article.create({ status: "DRAFT" })   Article A created
+
+  Segment 2 → chunks 2–3
+    Sample: 2500 from chunk 2 + 2500 from chunk 3
+    → Article B created
+
+  Segment 3 → chunks 4–5
+    Sample: 2500 from chunk 4 + 2500 from chunk 5
+    → Article C created
+
+  Segment 4 → chunk 6
+    Sample: 2500 from chunk 6 (only one chunk)
+    → Article D created
+        │
+        ▼
+prisma.jobRun.update({
+  status: "COMPLETED",
+  result: {
+    articleCount: 4,
+    articles: [
+      { id: "...", title: "Early Life & Aviation Ambition",  slug: "..." },
+      { id: "...", title: "Kingfisher Rise and Golden Era",  slug: "..." },
+      { id: "...", title: "Financial Crisis & Legal Battles",slug: "..." },
+      { id: "...", title: "RCB, Life After Kingfisher",      slug: "..." },
+    ],
+    splitReason: "Four distinct life phases..."
+  }
+})
+        │
+        ▼
+IngestForm polling detects COMPLETED
+  └── result = { articleCount: 4, articles: [...] }  ← MultiArticleResult
+  └── isMultiArticleResult(result) → true
+  └── toast.success("4 articles generated!", {
+        description: "Early Life & Aviation Ambition · Kingfisher Rise... · +2 more"
+      })
+  └── job card shows:
+        "4 articles generated"
+        "Early Life & Aviation Ambition · Kingfisher Rise · +2 more"
+        [green Completed badge]
+
+Admin navigates to /admin/articles
+  └── sees 4 new DRAFT articles in the review queue
+  └── each focused on one topic, ready to review and approve
+```
 
 ---
 
@@ -2319,37 +2913,4 @@ export const youtubeProcessQueue = new Queue("youtube-process", {
 
 ### The Complete Request Flow (End to End)
 
-```
-Admin pastes: https://www.youtube.com/watch?v=dQw4w9WgXcQ
-
-1. Browser → IngestForm.tsx (Client Component)
-   └── handleSubmit() called
-   └── startTransition → ingestYoutubeUrl("https://...")
-
-2. Next.js Server → ingest/actions.ts (Server Action)
-   └── serverApi.post("/admin/ingest/youtube", { url })
-   └── HTTP POST to Express:3001, Header: Bearer API_SECRET
-
-3. Express Server → ingest.controller.ts
-   └── extractVideoId("https://...") → "dQw4w9WgXcQ"
-   └── prisma.jobRun.create({ type: "YOUTUBE_PROCESS", status: "PENDING" })
-   └── youtubeProcessQueue.add("process-video", { videoId, videoUrl })
-       └── BullMQ pushes JSON into Redis list
-   └── Returns 201: { jobRunId, videoId, status: "PENDING" }
-
-4. Browser shows toast: "Video queued for processing"
-
-5. BullMQ Worker (running in background) picks up job from Redis
-   └── youtube-process.worker.ts → processYoutubeVideo()
-   └── Updates JobRun to RUNNING
-   └── fetchVideoMeta("dQw4w9WgXcQ") → { title, channelName }
-   └── fetchTranscript("dQw4w9WgXcQ") → "Never gonna give you up..."
-   └── aiService.generateArticleFromTranscript(transcript, keywords, meta)
-       └── Sends prompt to Claude/Groq/OpenRouter (whichever is active)
-       └── Receives JSON: { title, slug, content, category, tags }
-   └── prisma.article.create({ status: "DRAFT", sourceType: "YOUTUBE_VIDEO" })
-   └── Updates JobRun to COMPLETED
-
-6. Admin navigates to /admin/articles → sees new DRAFT article
-   └── Can read, edit, approve, or reject it
-```
+> See the full detailed flows in the **Smart Split AI Pipeline** section above — Path A (single article) and Path B (smart split → multiple articles). Those replace this summary.

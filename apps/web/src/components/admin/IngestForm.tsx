@@ -14,13 +14,17 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
-import { ingestYoutubeUrl, getJobStatus } from "@/app/admin/ingest/actions"
+import { ingestYoutubeUrl, getJobStatus, isMultiArticleResult } from "@/app/admin/ingest/actions"
 
 interface JobState {
   jobRunId: string
   status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED"
   errorMessage?: string | null
+  // single article
   articleTitle?: string
+  // smart split
+  articleCount?: number
+  articleTitles?: string[]
 }
 
 const statusConfig = {
@@ -55,20 +59,36 @@ export function IngestForm() {
         if (!result.success || !result.data) return
 
         const { status, errorMessage, result: jobResult } = result.data
-        const articleTitle = (jobResult as { articleTitle?: string })?.articleTitle
+
+        let articleTitle: string | undefined
+        let articleCount: number | undefined
+        let articleTitles: string[] | undefined
+
+        if (isMultiArticleResult(jobResult)) {
+          articleCount  = jobResult.articleCount
+          articleTitles = jobResult.articles.map((a) => a.title)
+        } else if (jobResult) {
+          articleTitle = jobResult.articleTitle
+        }
 
         setJobs((prev) =>
           prev.map((j) =>
             j.jobRunId === job.jobRunId
-              ? { ...j, status, errorMessage, articleTitle }
+              ? { ...j, status, errorMessage, articleTitle, articleCount, articleTitles }
               : j
           )
         )
 
         if (status === "COMPLETED") {
-          toast.success("Article generated!", {
-            description: articleTitle ?? "Check the review queue",
-          })
+          if (articleCount && articleTitles) {
+            toast.success(`${articleCount} articles generated!`, {
+              description: articleTitles.slice(0, 2).join(" · ") + (articleCount > 2 ? ` · +${articleCount - 2} more` : ""),
+            })
+          } else {
+            toast.success("Article generated!", {
+              description: articleTitle ?? "Check the review queue",
+            })
+          }
         } else if (status === "FAILED") {
           toast.error("Job failed", {
             description: errorMessage ?? "Unknown error",
@@ -183,9 +203,21 @@ export function IngestForm() {
                         }`}
                       />
                       <div className="min-w-0">
-                        <p className="text-sm font-medium truncate">
-                          {job.articleTitle ?? `Job ${job.jobRunId.slice(-8)}`}
-                        </p>
+                        {job.articleCount && job.articleTitles ? (
+                          <>
+                            <p className="text-sm font-medium">
+                              {job.articleCount} articles generated
+                            </p>
+                            <p className="text-xs text-muted-foreground truncate">
+                              {job.articleTitles.slice(0, 2).join(" · ")}
+                              {job.articleCount > 2 ? ` · +${job.articleCount - 2} more` : ""}
+                            </p>
+                          </>
+                        ) : (
+                          <p className="text-sm font-medium truncate">
+                            {job.articleTitle ?? `Job ${job.jobRunId.slice(-8)}`}
+                          </p>
+                        )}
                         {job.status === "FAILED" && job.errorMessage && (
                           <p className="text-xs text-destructive truncate">
                             {job.errorMessage}

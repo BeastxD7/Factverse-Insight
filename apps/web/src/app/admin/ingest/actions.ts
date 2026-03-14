@@ -8,12 +8,30 @@ interface IngestResult {
   status: string
 }
 
+type SingleArticleResult = {
+  articleId: string
+  articleTitle: string
+  articleSlug: string
+}
+
+type MultiArticleResult = {
+  articleCount: number
+  articles: Array<{ id: string; title: string; slug: string }>
+  splitReason: string
+}
+
+export type JobResult = SingleArticleResult | MultiArticleResult | null
+
+export function isMultiArticleResult(r: JobResult): r is MultiArticleResult {
+  return r != null && "articleCount" in r
+}
+
 interface JobStatus {
   id: string
   type: string
   status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED"
   errorMessage: string | null
-  result: { articleId?: string; articleTitle?: string; articleSlug?: string } | null
+  result: JobResult
   createdAt: string
   completedAt: string | null
 }

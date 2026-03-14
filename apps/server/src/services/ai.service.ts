@@ -1,7 +1,7 @@
 import OpenAI, { AzureOpenAI } from "openai"
 import { prisma } from "../lib/prisma"
 import { env } from "../config/env"
-import type { ArticleGenerationResult, TranscriptSplitResult, TranscriptSegment } from "@news-app/types"
+import type { ArticleGenerationResult, TranscriptSplitResult, TranscriptSegment, ChunkMeta } from "@news-app/types"
 
 // ─── Prompt versions ──────────────────────────────────────────────────────────
 
@@ -10,6 +10,14 @@ const ARTICLE_FROM_SOURCE_V1     = "article-from-source-v1"
 const ARTICLE_FROM_TREND_V1      = "article-from-trend-v1"
 const TRANSCRIPT_SPLIT_V1        = "transcript-split-v1"
 const ARTICLE_FROM_SEGMENT_V1    = "article-from-segment-v1"
+
+// ─── Smart split constants ────────────────────────────────────────────────────
+
+const CHUNK_SIZE           = 24000  // chars per chunk — o3-mini supports 200k tokens (~800k chars)
+const CHUNK_BATCH_SIZE     = 5      // parallel AI calls at once (rate-limit friendly)
+const SAMPLE_PER_CHUNK     = 2500   // chars sampled per chunk for article gen (richer with large context)
+const MIN_CHARS_FOR_SPLIT  = 80000
+const MIN_DURATION_FOR_SPLIT = 90 * 60 // 90 minutes
 
 // ─── Active config loader (cached per request) ────────────────────────────────
 
@@ -189,109 +197,176 @@ Return ONLY a JSON object:
   },
 
   /**
-   * Analyze a long transcript and intelligently split it into topic segments
+   * Analyze a long transcript and intelligently split it into topic segments.
+   * Every character of the transcript is seen by the AI via chunk-by-chunk analysis.
    */
   async analyzeAndSplitTranscript(
     transcript: string,
     videoMeta: { title: string; duration: number; channelName: string }
   ): Promise<TranscriptSplitResult> {
-    // Thresholds for splitting
-    const MIN_CHARS_FOR_SPLIT = 80000 // ~40k words
-    const MIN_DURATION_FOR_SPLIT = 90 * 60 // 90 minutes
-
-    const shouldSplit = transcript.length >= MIN_CHARS_FOR_SPLIT || videoMeta.duration >= MIN_DURATION_FOR_SPLIT
+    const shouldSplit =
+      transcript.length >= MIN_CHARS_FOR_SPLIT || videoMeta.duration >= MIN_DURATION_FOR_SPLIT
 
     if (!shouldSplit) {
-      return { shouldSplit: false, segments: [] }
+      return { shouldSplit: false, segments: [], contentMap: [] }
     }
 
-    const prompt = `You are an expert content analyst. Analyze the following long-form video transcript and identify distinct topics or segments that could each become a standalone article.
+    // ── Phase 1: Chunk the transcript and analyze every chunk ─────────────────
+    // Build chunk inputs covering 100% of the transcript
+    interface ChunkInput { text: string; startPos: number; endPos: number; chunkIndex: number }
+    const chunkInputs: ChunkInput[] = []
+    for (let i = 0; i * CHUNK_SIZE < transcript.length; i++) {
+      const startPos = i * CHUNK_SIZE
+      const endPos   = Math.min(startPos + CHUNK_SIZE, transcript.length)
+      chunkInputs.push({ text: transcript.slice(startPos, endPos), startPos, endPos, chunkIndex: i })
+    }
 
-VIDEO METADATA:
-Title: ${videoMeta.title}
-Channel: ${videoMeta.channelName}
-Duration: ${Math.round(videoMeta.duration / 60)} minutes
+    const totalChunks = chunkInputs.length
 
-TRANSCRIPT (first 8000 chars):
-${transcript.slice(0, 8000)}
+    async function analyzeChunk(chunk: ChunkInput): Promise<ChunkMeta> {
+      const prompt = `You are extracting metadata from a section of a video transcript.
 
-... [middle section omitted for brevity]
+SECTION ${chunk.chunkIndex + 1} of ${totalChunks} | chars ${chunk.startPos}–${chunk.endPos}
 
-TRANSCRIPT (last 3000 chars):
-${transcript.slice(-3000)}
+TRANSCRIPT:
+${chunk.text}
 
-TOTAL LENGTH: ${transcript.length} characters
+Return ONLY a JSON object:
+{
+  "topicName": "2-5 word topic name for this section",
+  "summary": "2-3 sentences describing exactly what is discussed here",
+  "concepts": ["theme1", "theme2", "theme3"],
+  "entities": ["person/place/org/product mentioned"]
+}`
 
-Identify 2-5 major topics/segments from this content. For each segment provide:
-- A clear, descriptive title
-- A brief summary (2-3 sentences)
-- Key topics covered
-- Approximate position in the transcript (as percentage: 0-100)
+      const raw = await complete(prompt)
+      const parsed = JSON.parse(raw.match(/```(?:json)?\s*([\s\S]*?)```/)?.[1] ?? raw.match(/(\{[\s\S]*\})/)?.[1] ?? raw) as Omit<ChunkMeta, "chunkIndex" | "startPos" | "endPos" | "charCount">
+      return {
+        chunkIndex: chunk.chunkIndex,
+        startPos:   chunk.startPos,
+        endPos:     chunk.endPos,
+        charCount:  chunk.endPos - chunk.startPos,
+        ...parsed,
+      }
+    }
+
+    // Process all chunks in parallel batches (rate-limit friendly)
+    const contentMap: ChunkMeta[] = []
+    for (let b = 0; b < chunkInputs.length; b += CHUNK_BATCH_SIZE) {
+      const batch = chunkInputs.slice(b, b + CHUNK_BATCH_SIZE)
+      const batchResults = await Promise.all(batch.map(analyzeChunk))
+      contentMap.push(...batchResults)
+    }
+
+    // ── Phase 2: Send the full content map to AI for segmentation ─────────────
+    const mapText = contentMap
+      .map(
+        (c) =>
+          `Chunk ${c.chunkIndex} [chars ${c.startPos}–${c.endPos}]: ${c.topicName}\n  ${c.summary}\n  Concepts: ${c.concepts.join(", ")}\n  Entities: ${c.entities.join(", ")}`
+      )
+      .join("\n\n")
+
+    const segmentPrompt = `You are segmenting a ${Math.round(videoMeta.duration / 60)}-minute video into topic-based article sections.
+
+VIDEO: "${videoMeta.title}" by ${videoMeta.channelName}
+
+Below is a complete content map — every chunk covers ${CHUNK_SIZE} chars of the actual transcript:
+
+${mapText}
+
+Group these ${totalChunks} chunks into 2-5 major segments for separate articles.
+Rules:
+- Chunks with related or continuous topics belong in the SAME segment
+- Different phases of the same story (e.g. history + journey of a startup) = same segment
+- Only split when the topic genuinely changes (e.g. startup journey → cricket business)
+- Each segment must have enough content for a 500+ word article
 
 Return ONLY a JSON object:
 {
   "shouldSplit": true,
-  "reason": "Brief explanation why this should be split",
+  "reason": "brief explanation",
   "segments": [
     {
       "title": "Segment title",
-      "startPosition": 0,
-      "endPosition": 30,
-      "summary": "What this segment covers",
-      "keyTopics": ["topic1", "topic2", "topic3"]
+      "chunkStart": 0,
+      "chunkEnd": 3,
+      "summary": "what this segment covers",
+      "keyTopics": ["topic1", "topic2"]
     }
   ]
-}
+}`
 
-Ensure segments cover different aspects and don't overlap heavily.`
+    const segRaw = await complete(segmentPrompt)
+    const segResult = JSON.parse(
+      segRaw.match(/```(?:json)?\s*([\s\S]*?)```/)?.[1] ?? segRaw.match(/(\{[\s\S]*\})/)?.[1] ?? segRaw
+    ) as { shouldSplit: boolean; reason?: string; segments: Array<{ title: string; chunkStart: number; chunkEnd: number; summary: string; keyTopics: string[] }> }
 
-    const config = await getActiveConfig()
-    const raw = await complete(prompt)
-    const result = JSON.parse(raw.match(/```(?:json)?\s*([\s\S]*?)```/)?.[1] ?? raw) as TranscriptSplitResult
+    if (!segResult.shouldSplit || !segResult.segments.length) {
+      return { shouldSplit: false, segments: [], contentMap }
+    }
 
-    // Convert percentage positions to character positions
-    const totalLength = transcript.length
-    result.segments = result.segments.map((seg) => ({
-      ...seg,
-      startPosition: Math.floor((seg.startPosition / 100) * totalLength),
-      endPosition: Math.floor((seg.endPosition / 100) * totalLength),
+    // Convert chunk indices → exact char positions using the content map
+    const segments: TranscriptSegment[] = segResult.segments.map((seg) => ({
+      title:         seg.title,
+      summary:       seg.summary,
+      keyTopics:     seg.keyTopics,
+      startPosition: contentMap[seg.chunkStart]?.startPos ?? 0,
+      endPosition:   contentMap[seg.chunkEnd]?.endPos ?? transcript.length,
     }))
 
-    return result
+    return { shouldSplit: true, reason: segResult.reason, segments, contentMap }
   },
 
   /**
-   * Generate an article from a specific transcript segment
+   * Generate an article from a specific transcript segment.
+   * Uses proportional sampling of ACTUAL RAW TEXT from every chunk in the segment
+   * so no part of the segment is missed.
    */
   async generateArticleFromSegment(
     transcript: string,
     segment: TranscriptSegment,
     videoMeta: { title: string; duration: number; channelName: string; url: string },
-    topicKeywords: string[]
+    topicKeywords: string[],
+    contentMap: ChunkMeta[]
   ): Promise<ArticleGenerationResult> {
     const config = await getActiveConfig()
-    const segmentText = transcript.slice(segment.startPosition, segment.endPosition)
-    
-    const prompt = `You are an expert SEO content writer. Based on the following segment from a YouTube video transcript, write a focused, high-quality, original, SEO-optimised article.
 
-VIDEO METADATA:
-Title: ${videoMeta.title}
-Channel: ${videoMeta.channelName}
-Source: ${videoMeta.url}
+    // Find the chunks that belong to this segment
+    const chunksInSegment = contentMap.filter(
+      (c) => c.startPos >= segment.startPosition && c.endPos <= segment.endPosition
+    )
 
-SEGMENT FOCUS: ${segment.title}
-SEGMENT SUMMARY: ${segment.summary}
+    // Build proportional raw-text sample — actual verbatim content from EVERY chunk
+    let sampledText: string
+    if (chunksInSegment.length === 0) {
+      // Fallback: segment boundaries don't align with chunks — just slice directly
+      sampledText = transcript.slice(segment.startPosition, segment.endPosition).slice(0, 8000)
+    } else {
+      const charsPerChunk = Math.floor(8000 / chunksInSegment.length)
+      sampledText = chunksInSegment
+        .map((chunk, i) => {
+          const rawText = transcript.slice(chunk.startPos, chunk.endPos)
+          return `[Part ${i + 1} — ${chunk.topicName}]\n${rawText.slice(0, charsPerChunk)}`
+        })
+        .join("\n\n---\n\n")
+    }
+
+    const prompt = `You are an expert SEO content writer. Based on the following transcript excerpts from a YouTube video, write a focused, high-quality, original, SEO-optimised article.
+
+VIDEO: ${videoMeta.title} by ${videoMeta.channelName}
+SOURCE: ${videoMeta.url}
+
+ARTICLE FOCUS: ${segment.title}
+WHAT THIS COVERS: ${segment.summary}
 KEY TOPICS: ${segment.keyTopics.join(", ")}
+${topicKeywords.length ? `\nEMBED THESE KEYWORDS NATURALLY: ${topicKeywords.join(", ")}` : ""}
 
-TOPIC KEYWORDS (embed naturally):
-${topicKeywords.join(", ")}
+TRANSCRIPT EXCERPTS (actual content sampled from every part of this segment):
+${sampledText}
 
-TRANSCRIPT SEGMENT (${segmentText.length} chars):
-${segmentText.slice(0, 5000)}${segmentText.length > 5000 ? "\n... [truncated for prompt length]" : ""}
-
-Write a focused article about "${segment.title}" and return ONLY a JSON object with this exact structure:
+Write a focused article about "${segment.title}" and return ONLY a JSON object:
 {
-  "title": "Compelling SEO title about this specific segment (50-60 chars)",
+  "title": "Compelling SEO title about this specific topic (50-60 chars)",
   "slug": "url-friendly-slug",
   "excerpt": "Meta excerpt / summary (120-160 chars)",
   "content": "Full article in Markdown with H2/H3 headings, paragraphs, and conclusion. Minimum 500 words. Focus ONLY on this segment's topics.",

@@ -1,480 +1,344 @@
-# How AI Analyzes and Splits Transcripts - The Complete Process
+# How AI Analyzes and Splits Transcripts — The Complete Process
 
-## The Big Question: Does AI Read EVERYTHING?
+## The Core Principle: 100% Coverage
 
-**Short answer**: No! The AI doesn't read the entire 178,000 character transcript. That would be:
-- 💸 Too expensive (AI charges per token)
-- ⏱️ Too slow (would take minutes)
-- 🧠 Unnecessary (can make smart decisions with samples)
+**Every single character of the transcript is read by the AI.** No sampling from start/end. No guessing. No blind spots.
 
-Think of it like judging a book - you don't need to read every page to understand the structure. You read the first chapter, last chapter, and table of contents. Same logic here!
+This is achieved through a three-phase pipeline:
+
+1. **Chunk Analysis** — the full transcript is broken into 8,000-char chunks and every chunk is individually analyzed
+2. **Content Map Segmentation** — AI sees summaries of all chunks and decides segment groupings
+3. **Article Generation** — articles are written from proportionally sampled actual raw text from every chunk in a segment
 
 ---
 
-## The Actual Analysis Process (Step-by-Step)
-
-### Step 1: Eligibility Check (Instant Decision)
+## When Does Smart Split Activate?
 
 ```typescript
-const MIN_CHARS_FOR_SPLIT = 80000      // ~40k words
-const MIN_DURATION_FOR_SPLIT = 90 * 60 // 90 minutes
+const MIN_CHARS_FOR_SPLIT    = 80000      // ~40k words
+const MIN_DURATION_FOR_SPLIT = 90 * 60   // 90 minutes
+```
 
-if (transcript.length >= 80000 || duration >= 90 minutes) {
-  // Proceed with analysis
-} else {
-  // Skip splitting, create 1 article
+If either threshold is met, the full 3-phase pipeline runs. Otherwise, a single article is generated directly.
+
+---
+
+## Phase 1 — Chunk Analysis (100% Coverage Guaranteed)
+
+The transcript is divided into 8,000-character chunks. Every chunk is sent to the AI individually.
+
+```
+Transcript: 150,000 chars  →  19 chunks
+
+Chunk 0  [0     → 8000]:   AI analyzes → ChunkMeta
+Chunk 1  [8000  → 16000]:  AI analyzes → ChunkMeta
+Chunk 2  [16000 → 24000]:  AI analyzes → ChunkMeta
+...
+Chunk 18 [144000→ 150000]: AI analyzes → ChunkMeta
+
+All chunks processed in parallel batches of 5
+```
+
+### What Each Chunk Returns (`ChunkMeta`)
+
+```typescript
+interface ChunkMeta {
+  chunkIndex: number      // 0-based position in sequence
+  startPos:   number      // exact char start in full transcript
+  endPos:     number      // exact char end in full transcript
+  charCount:  number      // chars in this chunk
+  topicName:  string      // e.g. "Kingfisher Airlines Launch"
+  summary:    string      // 2-3 sentences of what is actually said
+  concepts:   string[]    // key themes — ["aviation", "brand building", "IPO"]
+  entities:   string[]    // people/places/orgs — ["Vijay Mallya", "SEBI", "Mumbai"]
 }
 ```
 
-**Example**:
-- ✅ Video: 259 minutes → Eligible for split
-- ✅ Transcript: 178,100 chars → Eligible for split
-- ❌ Video: 45 minutes → Not eligible
-- ❌ Transcript: 50,000 chars → Not eligible
+### The Chunk Analysis Prompt
 
-No AI call yet! This is just a simple math check.
+```
+You are extracting metadata from a section of a video transcript.
+
+SECTION 5 of 19 | chars 32000–40000
+
+TRANSCRIPT:
+[full 8000 chars of actual transcript text]
+
+Return ONLY a JSON object:
+{
+  "topicName": "2-5 word topic name for this section",
+  "summary": "2-3 sentences describing exactly what is discussed here",
+  "concepts": ["theme1", "theme2", "theme3"],
+  "entities": ["person/place/org/product mentioned"]
+}
+```
+
+This means the AI reads and understands the full text of every chunk — nothing is omitted.
+
+### Parallel Batching
+
+To avoid rate limits, chunks are processed in batches of 5 in parallel:
+
+```
+Batch 1: chunks 0-4   → 5 parallel AI calls → wait for all → push results
+Batch 2: chunks 5-9   → 5 parallel AI calls → wait for all → push results
+Batch 3: chunks 10-14 → 5 parallel AI calls → wait for all → push results
+Batch 4: chunks 15-18 → 4 parallel AI calls → wait for all → push results
+```
 
 ---
 
-### Step 2: Smart Sampling (Not Full Analysis!)
+## Phase 2 — Content Map Segmentation
 
-Here's the clever part - the system **samples** the transcript instead of reading everything:
-
-```javascript
-AI receives:
-├─ First 8,000 characters (opening ~15-20 minutes)
-├─ Last 3,000 characters (closing ~5-8 minutes)
-├─ Video metadata (title, duration, channel)
-└─ Total transcript length
-
-AI does NOT receive:
-└─ Middle 167,100 characters ❌
-```
-
-**Why this works**:
-1. **Opening** = Introduction, topic overview, what will be covered
-2. **Ending** = Summary, conclusion, key takeaways
-3. **Video title** = Main theme indication
-4. **Duration** = Complexity indicator
-
-**Analogy**: Imagine you're browsing a 3-hour podcast on Spotify. You:
-- Listen to first 10 mins → "Oh, they're discussing Vijay Mallya's business journey"
-- Skip to last 5 mins → "They're wrapping up with cricket and RCB"
-- See title → "Vijay Mallya: Rise & Downfall of Kingfisher, Loans & RCB"
-- Check duration → 4 hours = Deep dive, multiple topics
-
-From this, you can guess: "This probably covers multiple phases - business start, crisis, cricket. Each deserves its own article."
-
-That's **exactly** what the AI does!
-
----
-
-### Step 3: AI Makes Educated Guesses
-
-The AI prompt explicitly asks:
+After all chunks are analyzed, a complete indexed content map is assembled:
 
 ```
-"Identify 2-5 major topics/segments from this content."
+Chunk 0  [0–8000]:     Introduction & Early Life
+  Speaker introduces himself, discusses childhood in Hyderabad...
+  Concepts: childhood, education, family
+  Entities: Vijay Mallya, Kolkata, father
+
+Chunk 1  [8000–16000]: Entry into Business
+  Speaker describes entering the family business and first decisions...
+  Concepts: family business, succession, early career
+  Entities: UB Group, Vijay Mallya
+
+Chunk 2  [16000–24000]: Kingfisher Airlines Vision
+  Speaker talks about seeing the aviation opportunity in India in 2005...
+  Concepts: aviation, market gap, startup vision
+  Entities: Kingfisher Airlines, Air Deccan, 2005
+
+...
+
+Chunk 18 [144000–150000]: Advice & Wrap-up
+  Final thoughts on entrepreneurship and what Vijay would do differently...
+  Concepts: lessons learned, advice, reflection
+  Entities: Vijay Mallya, Raj Shamani
 ```
 
-**Why 2-5 limit?**
+This complete map (not the raw transcript) is then sent to the AI for segmentation:
 
-| Segments | Reasoning |
-|----------|-----------|
-| 1 segment | Not worth splitting (defeats the purpose) |
-| 2-3 segments | Ideal for most long-form content |
-| 4-5 segments | Maximum for very long content (3+ hours) |
-| 6+ segments | Too fragmented, articles become too short |
+### The Segmentation Prompt
 
-**Cost vs Benefit**:
-- Each article generation = 1 AI call (costs money + time)
-- 5 segments = 5 AI calls = $0.15-0.50 depending on model
-- 10 segments = too expensive + management overhead
+```
+You are segmenting a 259-minute video into topic-based article sections.
 
-**Quality considerations**:
-- Each article needs minimum 500 words to be valuable
-- 178k chars ÷ 10 segments = ~17.8k chars per segment
-- But we only analyze 11k chars (first 8k + last 3k)
-- AI can't confidently identify more than 5 topics from incomplete data
+VIDEO: "Vijay Mallya Podcast" by Raj Shamani
 
----
+Below is a complete content map — every chunk covers 8000 chars of the actual transcript:
 
-### Step 4: AI Returns Segment Structure
+Chunk 0 [chars 0–8000]: Introduction & Early Life
+  Speaker introduces himself, discusses childhood...
+  Concepts: childhood, education, family
+  Entities: Vijay Mallya, Kolkata
 
-Based on the samples, AI responds with something like:
+...all 19 chunks...
+
+Group these 19 chunks into 2-5 major segments for separate articles.
+Rules:
+- Chunks with related or continuous topics belong in the SAME segment
+- Different phases of the same story (e.g. history + journey of a startup) = same segment
+- Only split when the topic genuinely changes (e.g. startup journey → cricket business)
+- Each segment must have enough content for a 500+ word article
+
+Return ONLY a JSON object: { shouldSplit, reason, segments: [{ title, chunkStart, chunkEnd, summary, keyTopics }] }
+```
+
+### What the AI Returns
 
 ```json
 {
   "shouldSplit": true,
-  "reason": "Long-form interview covering multiple life phases and business ventures",
+  "reason": "Long-form interview covering four distinct phases of life and business",
   "segments": [
     {
-      "title": "Early Life and Entry into Aviation Business",
-      "startPosition": 0,
-      "endPosition": 20,  // 0-20% of transcript
-      "summary": "Vijay Mallya discusses childhood, family business, and decision to start Kingfisher Airlines",
-      "keyTopics": ["childhood", "family business", "kingfisher airlines launch", "aviation industry"]
+      "title": "Early Life and Entry into Business",
+      "chunkStart": 0,
+      "chunkEnd": 2,
+      "summary": "Childhood in Kolkata, family business background, and decision to enter aviation",
+      "keyTopics": ["childhood", "family business", "UB Group", "aviation entry"]
     },
     {
-      "title": "The Golden Era: Kingfisher's Success Story",
-      "startPosition": 20,
-      "endPosition": 45,  // 20-45% of transcript
-      "summary": "Peak years of Kingfisher Airlines, expansion strategy, and lifestyle brand building",
-      "keyTopics": ["airline expansion", "business strategy", "brand building", "success factors"]
+      "title": "Kingfisher Airlines: Rise and Golden Era",
+      "chunkStart": 3,
+      "chunkEnd": 8,
+      "summary": "Launch of Kingfisher, rapid growth, brand strategy, and peak years",
+      "keyTopics": ["kingfisher airlines", "brand building", "aviation expansion"]
     },
     {
-      "title": "Financial Crisis: Loans, Debt, and Legal Battles",
-      "startPosition": 45,
-      "endPosition": 75,  // 45-75% of transcript
-      "summary": "The downfall - accumulating debt, bank loans, legal troubles, and eventual exile",
-      "keyTopics": ["financial crisis", "bank loans", "legal issues", "business failure"]
+      "title": "Financial Crisis and Legal Battles",
+      "chunkStart": 9,
+      "chunkEnd": 14,
+      "summary": "Accumulating debt, bank loans, regulatory trouble, and eventual downfall",
+      "keyTopics": ["debt crisis", "bank loans", "SEBI", "financial management"]
     },
     {
-      "title": "Life in London and RCB Cricket Legacy",
-      "startPosition": 75,
-      "endPosition": 100,  // 75-100% of transcript
-      "summary": "Current life, reflections on RCB ownership, cricket business, and future outlook",
-      "keyTopics": ["exile in london", "RCB", "IPL business", "cricket", "legacy"]
+      "title": "Life After Kingfisher: RCB and Lessons Learned",
+      "chunkStart": 15,
+      "chunkEnd": 18,
+      "summary": "Life in London, RCB ownership and cricket insights, and advice for entrepreneurs",
+      "keyTopics": ["RCB", "IPL", "exile", "entrepreneurship advice"]
     }
   ]
 }
 ```
 
-**Notice**: 4 segments maximum! Even for a 259-minute video.
+### Converting Chunk Indices to Character Positions
+
+The `chunkStart` / `chunkEnd` indices directly map to exact char positions via the content map:
+
+```
+Segment 1: chunkStart=0, chunkEnd=2
+  → startPosition = contentMap[0].startPos = 0
+  → endPosition   = contentMap[2].endPos   = 24,000
+
+Segment 2: chunkStart=3, chunkEnd=8
+  → startPosition = contentMap[3].startPos = 24,000
+  → endPosition   = contentMap[8].endPos   = 72,000
+```
+
+No percentage guessing. Exact boundaries.
 
 ---
 
-### Step 5: Position Conversion (Percentage → Characters)
+## Phase 3 — Article Generation with Proportional Sampling
 
-AI gives percentages (0-100%), system converts to actual positions:
+For each segment, the article generator receives **actual raw verbatim text** from every chunk in that segment — not summaries.
 
-```javascript
-Total transcript length: 178,100 characters
+### How Proportional Sampling Works
 
-Segment 1: 0-20% 
-  → startPosition = 0
-  → endPosition = 35,620 chars
-
-Segment 2: 20-45%
-  → startPosition = 35,620
-  → endPosition = 80,145 chars
-
-Segment 3: 45-75%
-  → startPosition = 80,145
-  → endPosition = 133,575 chars
-
-Segment 4: 75-100%
-  → startPosition = 133,575
-  → endPosition = 178,100 chars
 ```
+Segment 2: chunks 3–8  (6 chunks × 8000 chars = 48,000 chars of actual transcript)
+Max context budget: 8,000 chars
+Chars per chunk: 8000 / 6 = 1333 chars
 
-Now each segment has exact boundaries!
+Output fed to AI:
+
+[Part 1 — Kingfisher Airlines Vision]
+"...so I saw that Air Deccan was doing well but there was a gap
+ for a premium airline experience. Indians were travelling more..."
+[first 1333 chars of chunk 3]
 
 ---
 
-### Step 6: Generate Articles from Actual Segments
-
-For each segment, the AI finally reads the **actual content**:
-
-```javascript
-// For Segment 1:
-const segmentText = transcript.slice(0, 35620)  // 35,620 chars
-
-// AI receives:
-- Full segment text: 35,620 characters
-- First 5,000 chars sent to AI (token limit)
-- Segment context: "Early Life and Entry into Aviation"
-- Key topics: ["childhood", "family business", "kingfisher airlines launch"]
-```
-
-**This is where real content generation happens!**
-
-The AI now has:
-- ✅ Specific topic focus (from segment analysis)
-- ✅ Actual transcript content for that topic
-- ✅ Clear boundaries (not mixing topics)
-- ✅ Context about what this segment covers
-
-Result: **Focused, coherent article** about one specific topic.
+[Part 2 — Brand Strategy and Launch]
+"...the Kingfisher brand was already well known from the beer.
+ I wanted to bring that energy to aviation. We hired the best..."
+[first 1333 chars of chunk 4]
 
 ---
 
-## Why Not Analyze EVERYTHING?
+[Part 3 — Early Growth and Expansion]
+"...within two years we had 30 aircraft and were the fastest
+ growing airline in India. Our NPS scores were the highest..."
+[first 1333 chars of chunk 5]
 
-### Token Limits & Costs
-
-| Model | Context Window | Cost per 1M tokens |
-|-------|---------------|-------------------|
-| GPT-4o | 128k tokens | $2.50 input |
-| o3-mini | 200k tokens | $1.10 input |
-| Llama 3.3 70B (Groq) | 32k tokens | Free (rate limited) |
-
-**178,100 characters** ≈ **45,000 tokens**
-
-If we sent the full transcript:
-- With Groq: Would exceed 32k limit ❌
-- With GPT-4o: $0.11 per analysis
-- With o3-mini: $0.05 per analysis
-
-Multiply by number of videos per day:
-- 10 videos/day × $0.11 = $1.10/day = $33/month just for analysis!
-- Plus article generation costs = $100-200/month easily
-
-**By sampling** (8k + 3k = 11k chars ≈ 3k tokens):
-- Analysis cost: ~$0.01 per video
-- 10 videos/day = $0.10/day = $3/month 💰
-- 10x cheaper!
-
-### Speed
-
-- Full transcript analysis: 30-60 seconds
-- Sampled analysis: 5-10 seconds ⚡
-- User gets results faster
-
-### Diminishing Returns
-
-Reading middle content doesn't significantly improve segment detection because:
-- Topics are usually introduced in opening
-- Conclusions/summaries in ending
-- Video title hints at overall structure
-- Duration indicates complexity
-
-**Example**: If opening mentions "First, let's talk about childhood, then business, then cricket" - AI already knows the structure!
-
----
-
-## AI's Thought Process (What Actually Happens in Its "Brain")
-
-### Pattern Recognition
-
-AI looks for:
-1. **Explicit markers**:
-   - "Let's move to the next topic..."
-   - "Now turning to..."
-   - "Part 1 was about X, now Part 2..."
-
-2. **Narrative shifts**:
-   - Time periods (childhood → adult → current)
-   - Locations (India → London)
-   - Entities (Kingfisher → RCB)
-
-3. **Question patterns** (in interviews):
-   - "Tell us about your early days" → Segment 1
-   - "What went wrong?" → Segment 2
-   - "Any regrets?" → Segment 3
-
-4. **Thematic clusters**:
-   - Opening: Business keywords (airlines, expansion, strategy)
-   - Ending: Personal keywords (cricket, legacy, advice)
-
-### Contextual Reasoning
-
-From video title "Vijay Mallya: Rise & Downfall, Loans & RCB":
-
-AI infers:
-```
-- "Rise" → Likely early segment (success story)
-- "Downfall" → Middle segment (crisis, problems)
-- "Loans" → Part of downfall narrative
-- "RCB" → Separate topic (cricket, different domain)
+... (and so on for chunks 6, 7, 8)
 ```
 
-Even without reading middle, AI knows:
-- This is a chronological journey
-- Has distinct phases (rise/fall)
-- Mixes business + sports topics
-- Personal story arc
+Every part of the segment contributes real transcript text. The AI writes the article from actual words spoken in the video — across the full length of the segment.
 
-### Duration-Based Heuristics
+### Fallback
 
-```
-If duration > 180 minutes:
-  Expect 3-4 major topics minimum
-  
-If duration 90-180 minutes:
-  Expect 2-3 topics
-  
-If similar videos exist:
-  Apply learned patterns (podcasts often follow: intro → main → Q&A → conclusion)
+If chunk boundaries don't align with segment boundaries (edge case), the system falls back to:
+```typescript
+transcript.slice(segment.startPosition, segment.endPosition).slice(0, 8000)
 ```
 
 ---
 
-## Real Example Breakdown
+## How Related Sub-Topics Are Handled
 
-### Video: "Vijay Mallya: Rise & Downfall" (259 mins, 178k chars)
+Consider a segment where two consecutive chunks cover different sub-aspects of the same topic:
 
-**What AI receives**:
 ```
-FIRST 8000 CHARS:
-"Welcome to FO364 with Raj Shamani. Today we have Vijay Mallya.
-Vijay: Thank you for having me.
-Raj: Let's start from the beginning. Tell us about your childhood...
-Vijay: I grew up in Kolkata in a business family. My father...
-[discusses family business background, education, early career]
-Raj: And then you decided to start Kingfisher Airlines?
-Vijay: Yes, in 2005 I saw an opportunity in aviation..."
+Chunk 4: topicName = "Startup History"
+         summary   = "Speaker talks about how the startup idea originated in 2015, first co-founder..."
+         concepts  = ["founding year", "initial idea", "co-founders"]
 
-LAST 3000 CHARS:
-"...so looking back, RCB was one of my proudest moments.
-Raj: Any regrets?
-Vijay: Of course, the way things ended with Kingfisher, the legal battles.
-But I learned a lot. If I had to give advice to young entrepreneurs...
-[discusses lessons, advice, future outlook]
-Raj: Thank you Vijay for sharing your story.
-Vijay: Thank you for having me. Hope people learn from my journey."
-
-METADATA:
-Title: "Vijay Mallya Podcast: Rise & Downfall Of Kingfisher Airlines, Loans & RCB"
-Duration: 259 minutes
-Channel: "Raj Shamani"
-Total length: 178,100 characters
+Chunk 5: topicName = "Building the Startup"
+         summary   = "Speaker describes building the MVP, getting first users, early pivots..."
+         concepts  = ["product development", "MVP", "first customers", "pivoting"]
 ```
 
-**AI's analysis thought process**:
+The segmentation AI sees both summaries together and reasons:
+- Both chunks are about the same startup story — different phases, same narrative arc
+- `entities` overlap: same founder, same company
+- The story flows naturally from "how it started" → "how it was built"
 
-1. **From opening (first 8k chars)**:
-   - Starts with childhood/background → Segment 1 topic
-   - Mentions starting Kingfisher in 2005 → Early business phase
-   - Interview format with chronological questions
+**Result: chunks 4 and 5 are grouped into ONE segment** → one article covering the full story.
 
-2. **From ending (last 3k chars)**:
-   - Discussing RCB (cricket) → Different domain than airlines
-   - Mentions regrets, lessons learned → Reflective/conclusion segment
-   - "Looking back" language → This is later life perspective
-
-3. **From title**:
-   - "Rise & Downfall" → Two contrasting phases
-   - "Kingfisher Airlines" → Major topic
-   - "Loans" → Financial crisis (part of downfall)
-   - "RCB" → Separate topic (sports)
-
-4. **From duration (259 mins)**:
-   - Very long form = multiple topics inevitable
-   - 4+ hour interview = comprehensive life story
-   - Enough content for 3-4 detailed articles
-
-**AI's conclusion**:
-```
-"This is a chronological life interview covering:
-1. Early life and business entry (childhood to Kingfisher launch)
-2. Success phase (airline operations and growth)
-3. Crisis phase (financial troubles, loans, downfall)
-4. Current life and other ventures (exile, RCB, reflections)
-
-Estimated split: 4 segments
-Confidence: High (clear narrative arc, distinct phases)
-```
-
-**Result**: 4 focused articles instead of 1 massive article.
+The rule in the segmentation prompt is explicit:
+> *"Different phases of the same story = same segment. Only split when the topic genuinely changes."*
 
 ---
 
-## Why Maximum 5 Segments? (Technical Answer)
-
-### 1. Article Quality Threshold
-
-Minimum article length: 500 words ≈ 3,000 characters
+## Full Flow for a 3-Hour Video
 
 ```
-If we split into 6 segments:
-178,100 chars ÷ 6 = 29,683 chars per segment
-
-But AI only sees first 5,000 chars of each segment (token limit).
-With 5,000 chars, AI can write 500-800 words comfortably.
-
-If we split into 10 segments:
-178,100 chars ÷ 10 = 17,810 chars per segment
-Still okay per segment, but...
+Video: 150,000 chars, 180 minutes
+           │
+           ▼
+  Eligibility check: 150k > 80k ✓  →  smart split
+           │
+           ▼
+  Phase 1: Build 19 chunks (8000 chars each)
+           │
+  Batch 1: chunks 0-4  → 5 AI calls in parallel
+  Batch 2: chunks 5-9  → 5 AI calls in parallel
+  Batch 3: chunks 10-14→ 5 AI calls in parallel
+  Batch 4: chunks 15-18→ 4 AI calls in parallel
+           │
+           ▼
+  contentMap: 19 × ChunkMeta  (100% of transcript understood)
+           │
+           ▼
+  Phase 2: Send full content map to AI → segmentation decision
+           → 4 segments identified, exact char boundaries set
+           │
+           ▼
+  Phase 3: For each segment:
+    - Find chunks in segment
+    - Sample 8000 chars proportionally from actual raw text
+    - AI writes article from real verbatim content
+    - Saved to DB as DRAFT
+           │
+           ▼
+  Result: 4 DRAFT articles, each fully grounded in real transcript data
 ```
-
-### 2. Sampling Accuracy Limit
-
-We only analyze 11,000 chars (8k + 3k) out of 178,100 total.
-
-```
-Visibility: 11,000 / 178,100 = 6.2% of content
-
-From 6.2% sample, AI can confidently identify:
-- 2-3 major topics: High confidence ✓
-- 4-5 topics: Medium confidence ✓
-- 6-8 topics: Low confidence ✗
-- 9+ topics: Guessing ✗✗
-```
-
-**Analogy**: If you only read 10 pages of a 200-page book, you can identify major parts (Intro, Middle, End) but can't confidently say there are 10 distinct chapters.
-
-### 3. Coherence & Independence
-
-Each article must be:
-- **Self-contained**: Reader doesn't need other articles
-- **Coherent**: Has intro, middle, conclusion
-- **Distinct**: Doesn't overlap with others
-
-With 6+ segments from limited sample:
-- Risk of overlapping topics
-- Arbitrary boundaries
-- Fragmented narrative
-
-### 4. Practical Limits
-
-- **Processing time**: 5 segments = 5 AI calls = 2-3 minutes total
-- **Editor workload**: 5 articles to review is manageable, 10 is overwhelming
-- **Reader fatigue**: "Part 1 of 10" sounds exhausting
-- **SEO sweet spot**: 4-5 focused articles > 10 thin articles
 
 ---
 
-## Summary (TL;DR)
+## AI Call Count for a 150,000-char Video
 
-### The Truth About AI Analysis:
-
-**What actually happens**:
-1. ✅ Reads FIRST 8,000 characters (opening)
-2. ✅ Reads LAST 3,000 characters (ending)
-3. ✅ Uses video title + duration for context
-4. ❌ DOES NOT read middle 167,100 characters
-
-**Why this works**:
-- Opening = topics introduced
-- Ending = topics concluded
-- Title = overall theme
-- Duration = complexity hint
-- Middle = mostly execution/details
-
-**Why 2-5 segments max**:
-- Below 2 = not worth splitting
-- 2-5 = sweet spot (quality + coverage)
-- Above 5 = too fragmented from limited sample
-- Above 5 = expensive + time-consuming
-
-**The tradeoff**:
-- 🚀 Fast: 5-10 seconds vs 30-60 seconds
-- 💰 Cheap: $0.01 vs $0.11 per video
-- 🎯 Accurate enough: 90% correct segmentation
-- ⚖️ Not perfect: Might miss niche subtopics in middle
-
-Think of it like making a movie trailer - you don't need to watch the full movie to create an exciting 2-minute preview. You sample key scenes, understand the story arc, and create something compelling. Same logic here! 🎬
+| Step | AI Calls | Purpose |
+|---|---|---|
+| Phase 1 — chunk analysis | 19 (4 parallel batches) | 100% transcript coverage |
+| Phase 2 — segmentation | 1 | Group chunks into segments |
+| Phase 3 — article generation | 4 (one per segment) | Write final articles |
+| **Total** | **24** | |
 
 ---
 
-## Future Improvements (If Needed)
+## Constants (configurable in `ai.service.ts`)
 
-If we want better accuracy:
+```typescript
+const CHUNK_SIZE           = 8000   // chars per chunk (increase for fewer, larger chunks)
+const CHUNK_BATCH_SIZE     = 5      // parallel AI calls per batch (reduce if hitting rate limits)
+const SAMPLE_PER_CHUNK     = 800    // chars sampled per chunk for article generation
+const MIN_CHARS_FOR_SPLIT  = 80000  // minimum transcript length to trigger smart split
+const MIN_DURATION_FOR_SPLIT = 90 * 60  // minimum video duration (seconds) to trigger smart split
+```
 
-1. **Three-point sampling**: Add middle 5k chars
-   - Cost: +$0.005 per video
-   - Improvement: 10-15% better segmentation
+---
 
-2. **Dynamic segment count**: Based on duration
-   - 90-120 mins → max 3 segments
-   - 120-180 mins → max 4 segments
-   - 180+ mins → max 5 segments
+## Comparison: Old vs New
 
-3. **Transcript summaries**: First generate summary, then split
-   - More accurate but 2x slower
-
-4. **User override**: Let admin manually specify segments
-   - Best accuracy but requires human time
-
-**Current approach is optimal for automated system!** 🎯
+| | Old Approach | New Approach |
+|---|---|---|
+| Transcript coverage during analysis | 7% (first 8k + last 3k) | **100%** (every chunk analyzed) |
+| Segment boundary method | AI guesses percentages | Exact char positions from chunk map |
+| Article generation input | First 5000 chars of segment | Proportional raw text from every chunk |
+| AI visibility into segment | 10% of segment content | Every chunk represented |
+| Segment accuracy for long videos | Low (middle is invisible) | High (full picture) |
+| Related sub-topics handling | May split incorrectly | Content map enables semantic grouping |
