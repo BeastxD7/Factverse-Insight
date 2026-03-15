@@ -178,16 +178,12 @@ async function fetchViaYtDlp(videoId: string): Promise<TranscriptResult | null> 
   const tempDir = await mkdtemp(join(tmpdir(), "nf-yt-"))
   const outStem = join(tempDir, "sub")
   const videoUrl = `https://www.youtube.com/watch?v=${videoId}`
-  const proxyUrl = process.env["YOUTUBE_PROXY_URL"]
-
   function buildArgs(extraFlags: string[]): string[] {
-    const proxyFlags = proxyUrl ? ["--proxy", proxyUrl] : []
     return [
       "--write-auto-subs",
       "--write-subs",
       "--sub-format", "json3",
       "--skip-download",
-      ...proxyFlags,
       ...extraFlags,
       "-o", outStem,
       videoUrl,
