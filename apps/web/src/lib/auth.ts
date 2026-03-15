@@ -10,6 +10,7 @@ const credentialsSchema = z.object({
 })
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  trustHost: true,
   session: { strategy: "jwt" },
   // Suppress next-auth@5.0.0-beta.30's known "Validation Error Count: 1" noise
   // that fires on every Credentials sign-in. This is an upstream bug, not ours.
