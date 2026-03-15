@@ -7,6 +7,7 @@ export interface AIConfig {
   temperature: number
   maxTokens: number
   baseUrl: string | null
+  splitThreshold: number
   isActive: boolean
   createdAt: string
   updatedAt: string
@@ -18,6 +19,7 @@ export interface UpdateAIConfigDto {
   temperature?: number
   maxTokens?: number
   baseUrl?: string
+  splitThreshold?: number
 }
 
 // ─── Available models per provider ───────────────────────────────────────────

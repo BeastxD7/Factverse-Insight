@@ -34,6 +34,7 @@ const schema = z.object({
   temperature: z.number().min(0).max(2),
   maxTokens: z.number().int().min(256).max(32000),
   baseUrl: z.string().url().optional().or(z.literal("")),
+  splitThreshold: z.number().int().min(1000).max(500000),
 })
 
 type FormValues = z.infer<typeof schema>
@@ -50,6 +51,7 @@ export function AiConfigForm({ config }: { config: AIConfig }) {
       temperature: config.temperature,
       maxTokens: config.maxTokens,
       baseUrl: config.baseUrl ?? "",
+      splitThreshold: config.splitThreshold,
     },
   })
 
@@ -58,6 +60,7 @@ export function AiConfigForm({ config }: { config: AIConfig }) {
       const result = await updateAiConfig({
         ...values,
         baseUrl: values.baseUrl || undefined,
+        splitThreshold: values.splitThreshold,
       })
       if (result.success) {
         toast.success("AI config updated")
@@ -214,6 +217,49 @@ export function AiConfigForm({ config }: { config: AIConfig }) {
                   )}
                 />
               )}
+
+              <Button type="submit" disabled={isPending}>
+                <Save className="size-4" />
+                {isPending ? "Saving..." : "Save Changes"}
+              </Button>
+            </form>
+          </Form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Pipeline Settings</CardTitle>
+          <CardDescription>
+            Controls how YouTube transcripts are processed into articles.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
+              <FormField
+                control={form.control}
+                name="splitThreshold"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Split Threshold (characters)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        step="1000"
+                        min="1000"
+                        max="500000"
+                        value={field.value}
+                        onChange={(e) => field.onChange(parseInt(e.target.value, 10))}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Transcripts longer than this are analysed for topic-based splitting into multiple articles. Default: 25,000 chars (~15–20 min video).
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               <Button type="submit" disabled={isPending}>
                 <Save className="size-4" />

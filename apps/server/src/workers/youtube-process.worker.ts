@@ -3,7 +3,7 @@ import { env } from "../config/env"
 import { prisma } from "../lib/prisma"
 import { aiService } from "../services/ai.service"
 import { imageService } from "../services/image.service"
-import { fetchTranscript, fetchVideoMeta } from "../services/youtube.service"
+import { fetchTranscript, fetchVideoMeta, getYoutubeThumbnail } from "../services/youtube.service"
 import type { YoutubeProcessPayload, ArticleGenerationResult } from "@news-app/types"
 
 const QUEUE_NAME = "youtube-process"
@@ -117,9 +117,17 @@ async function processYoutubeVideo(job: Job<YoutubeProcessPayload>): Promise<voi
       if (topic) topicKeywords = topic.keywords
     }
 
-    // 4. Check if this video should be split into multiple articles
-    console.log(`[youtube-process] Analyzing content for smart splitting...`)
-    const splitAnalysis = await aiService.analyzeAndSplitTranscript(transcript, meta)
+    // 4. Fetch YouTube thumbnail (use as cover; fall back to Pexels per-article)
+    const youtubeThumbnail = await getYoutubeThumbnail(videoId)
+    console.log(`[youtube-process] Thumbnail: ${youtubeThumbnail}`)
+
+    // 5. Read split threshold from active AI config
+    const aiConfig = await prisma.aiConfig.findFirst({ where: { isActive: true } })
+    const splitThreshold = aiConfig?.splitThreshold ?? 25000
+
+    // 6. Check if this video should be split into multiple articles
+    console.log(`[youtube-process] Analyzing content for smart splitting (threshold: ${splitThreshold} chars)...`)
+    const splitAnalysis = await aiService.analyzeAndSplitTranscript(transcript, meta, splitThreshold)
 
     if (splitAnalysis.shouldSplit && splitAnalysis.segments.length >= 1) {
       const segCount = splitAnalysis.segments.length
@@ -141,7 +149,7 @@ async function processYoutubeVideo(job: Job<YoutubeProcessPayload>): Promise<voi
           splitAnalysis.contentMap
         )
 
-        const coverImage = await imageService.fetchCoverImage(
+        const coverImage = youtubeThumbnail ?? await imageService.fetchCoverImage(
           result.keywords.slice(0, 3).join(" ") || result.title
         )
         const article = await createArticleFromResult(result, videoUrl, jobRun?.id, coverImage)
@@ -187,7 +195,7 @@ async function processYoutubeVideo(job: Job<YoutubeProcessPayload>): Promise<voi
       const result = await aiService.generateArticleFromTranscript(transcript, topicKeywords, { ...meta, url: videoUrl, transcriptLanguage: transcriptLang })
       console.log(`[youtube-process] AI generated article: "${result.title}"`)
 
-      const coverImage = await imageService.fetchCoverImage(
+      const coverImage = youtubeThumbnail ?? await imageService.fetchCoverImage(
         result.keywords.slice(0, 3).join(" ") || result.title
       )
       const article = await createArticleFromResult(result, videoUrl, jobRun?.id, coverImage)

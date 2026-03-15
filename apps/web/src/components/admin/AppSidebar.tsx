@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { signOut } from "next-auth/react"
-import { LayoutDashboard, FileText, Settings, LogOut, Newspaper, ExternalLink, Upload } from "lucide-react"
+import { LayoutDashboard, FileText, Settings, LogOut, ExternalLink, Upload } from "lucide-react"
 import {
   Sidebar,
   SidebarContent,
@@ -31,9 +31,8 @@ export function AppSidebar() {
       {/* Logo / Brand */}
       <SidebarHeader className="border-b border-sidebar-border">
         <div className="flex items-center gap-3 px-3 py-3">
-          <div className="size-8 rounded-lg bg-sidebar-primary/20 flex items-center justify-center shrink-0">
-            <Newspaper className="size-4 text-sidebar-primary" />
-          </div>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="Factverse Insights" className="size-8 rounded-lg shrink-0" />
           <div className="min-w-0">
             <p className="font-semibold text-sm text-sidebar-foreground leading-none">Factverse Insights</p>
             <p className="text-xs text-sidebar-foreground/50 mt-0.5 leading-none">Admin Panel</p>

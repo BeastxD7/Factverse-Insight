@@ -17148,11 +17148,13 @@ export namespace Prisma {
   export type AiConfigAvgAggregateOutputType = {
     temperature: number | null
     maxTokens: number | null
+    splitThreshold: number | null
   }
 
   export type AiConfigSumAggregateOutputType = {
     temperature: number | null
     maxTokens: number | null
+    splitThreshold: number | null
   }
 
   export type AiConfigMinAggregateOutputType = {
@@ -17162,6 +17164,7 @@ export namespace Prisma {
     temperature: number | null
     maxTokens: number | null
     baseUrl: string | null
+    splitThreshold: number | null
     isActive: boolean | null
     createdAt: Date | null
     updatedAt: Date | null
@@ -17174,6 +17177,7 @@ export namespace Prisma {
     temperature: number | null
     maxTokens: number | null
     baseUrl: string | null
+    splitThreshold: number | null
     isActive: boolean | null
     createdAt: Date | null
     updatedAt: Date | null
@@ -17186,6 +17190,7 @@ export namespace Prisma {
     temperature: number
     maxTokens: number
     baseUrl: number
+    splitThreshold: number
     isActive: number
     createdAt: number
     updatedAt: number
@@ -17196,11 +17201,13 @@ export namespace Prisma {
   export type AiConfigAvgAggregateInputType = {
     temperature?: true
     maxTokens?: true
+    splitThreshold?: true
   }
 
   export type AiConfigSumAggregateInputType = {
     temperature?: true
     maxTokens?: true
+    splitThreshold?: true
   }
 
   export type AiConfigMinAggregateInputType = {
@@ -17210,6 +17217,7 @@ export namespace Prisma {
     temperature?: true
     maxTokens?: true
     baseUrl?: true
+    splitThreshold?: true
     isActive?: true
     createdAt?: true
     updatedAt?: true
@@ -17222,6 +17230,7 @@ export namespace Prisma {
     temperature?: true
     maxTokens?: true
     baseUrl?: true
+    splitThreshold?: true
     isActive?: true
     createdAt?: true
     updatedAt?: true
@@ -17234,6 +17243,7 @@ export namespace Prisma {
     temperature?: true
     maxTokens?: true
     baseUrl?: true
+    splitThreshold?: true
     isActive?: true
     createdAt?: true
     updatedAt?: true
@@ -17333,6 +17343,7 @@ export namespace Prisma {
     temperature: number
     maxTokens: number
     baseUrl: string | null
+    splitThreshold: number
     isActive: boolean
     createdAt: Date
     updatedAt: Date
@@ -17364,6 +17375,7 @@ export namespace Prisma {
     temperature?: boolean
     maxTokens?: boolean
     baseUrl?: boolean
+    splitThreshold?: boolean
     isActive?: boolean
     createdAt?: boolean
     updatedAt?: boolean
@@ -17376,6 +17388,7 @@ export namespace Prisma {
     temperature?: boolean
     maxTokens?: boolean
     baseUrl?: boolean
+    splitThreshold?: boolean
     isActive?: boolean
     createdAt?: boolean
     updatedAt?: boolean
@@ -17388,6 +17401,7 @@ export namespace Prisma {
     temperature?: boolean
     maxTokens?: boolean
     baseUrl?: boolean
+    splitThreshold?: boolean
     isActive?: boolean
     createdAt?: boolean
     updatedAt?: boolean
@@ -17400,12 +17414,13 @@ export namespace Prisma {
     temperature?: boolean
     maxTokens?: boolean
     baseUrl?: boolean
+    splitThreshold?: boolean
     isActive?: boolean
     createdAt?: boolean
     updatedAt?: boolean
   }
 
-  export type AiConfigOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "provider" | "model" | "temperature" | "maxTokens" | "baseUrl" | "isActive" | "createdAt" | "updatedAt", ExtArgs["result"]["aiConfig"]>
+  export type AiConfigOmit<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetOmit<"id" | "provider" | "model" | "temperature" | "maxTokens" | "baseUrl" | "splitThreshold" | "isActive" | "createdAt" | "updatedAt", ExtArgs["result"]["aiConfig"]>
 
   export type $AiConfigPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
     name: "AiConfig"
@@ -17417,6 +17432,7 @@ export namespace Prisma {
       temperature: number
       maxTokens: number
       baseUrl: string | null
+      splitThreshold: number
       isActive: boolean
       createdAt: Date
       updatedAt: Date
@@ -17849,6 +17865,7 @@ export namespace Prisma {
     readonly temperature: FieldRef<"AiConfig", 'Float'>
     readonly maxTokens: FieldRef<"AiConfig", 'Int'>
     readonly baseUrl: FieldRef<"AiConfig", 'String'>
+    readonly splitThreshold: FieldRef<"AiConfig", 'Int'>
     readonly isActive: FieldRef<"AiConfig", 'Boolean'>
     readonly createdAt: FieldRef<"AiConfig", 'DateTime'>
     readonly updatedAt: FieldRef<"AiConfig", 'DateTime'>
@@ -18427,6 +18444,7 @@ export namespace Prisma {
     temperature: 'temperature',
     maxTokens: 'maxTokens',
     baseUrl: 'baseUrl',
+    splitThreshold: 'splitThreshold',
     isActive: 'isActive',
     createdAt: 'createdAt',
     updatedAt: 'updatedAt'
@@ -19631,6 +19649,7 @@ export namespace Prisma {
     temperature?: FloatFilter<"AiConfig"> | number
     maxTokens?: IntFilter<"AiConfig"> | number
     baseUrl?: StringNullableFilter<"AiConfig"> | string | null
+    splitThreshold?: IntFilter<"AiConfig"> | number
     isActive?: BoolFilter<"AiConfig"> | boolean
     createdAt?: DateTimeFilter<"AiConfig"> | Date | string
     updatedAt?: DateTimeFilter<"AiConfig"> | Date | string
@@ -19643,6 +19662,7 @@ export namespace Prisma {
     temperature?: SortOrder
     maxTokens?: SortOrder
     baseUrl?: SortOrderInput | SortOrder
+    splitThreshold?: SortOrder
     isActive?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
@@ -19658,6 +19678,7 @@ export namespace Prisma {
     temperature?: FloatFilter<"AiConfig"> | number
     maxTokens?: IntFilter<"AiConfig"> | number
     baseUrl?: StringNullableFilter<"AiConfig"> | string | null
+    splitThreshold?: IntFilter<"AiConfig"> | number
     isActive?: BoolFilter<"AiConfig"> | boolean
     createdAt?: DateTimeFilter<"AiConfig"> | Date | string
     updatedAt?: DateTimeFilter<"AiConfig"> | Date | string
@@ -19670,6 +19691,7 @@ export namespace Prisma {
     temperature?: SortOrder
     maxTokens?: SortOrder
     baseUrl?: SortOrderInput | SortOrder
+    splitThreshold?: SortOrder
     isActive?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
@@ -19690,6 +19712,7 @@ export namespace Prisma {
     temperature?: FloatWithAggregatesFilter<"AiConfig"> | number
     maxTokens?: IntWithAggregatesFilter<"AiConfig"> | number
     baseUrl?: StringNullableWithAggregatesFilter<"AiConfig"> | string | null
+    splitThreshold?: IntWithAggregatesFilter<"AiConfig"> | number
     isActive?: BoolWithAggregatesFilter<"AiConfig"> | boolean
     createdAt?: DateTimeWithAggregatesFilter<"AiConfig"> | Date | string
     updatedAt?: DateTimeWithAggregatesFilter<"AiConfig"> | Date | string
@@ -20779,6 +20802,7 @@ export namespace Prisma {
     temperature?: number
     maxTokens?: number
     baseUrl?: string | null
+    splitThreshold?: number
     isActive?: boolean
     createdAt?: Date | string
     updatedAt?: Date | string
@@ -20791,6 +20815,7 @@ export namespace Prisma {
     temperature?: number
     maxTokens?: number
     baseUrl?: string | null
+    splitThreshold?: number
     isActive?: boolean
     createdAt?: Date | string
     updatedAt?: Date | string
@@ -20803,6 +20828,7 @@ export namespace Prisma {
     temperature?: FloatFieldUpdateOperationsInput | number
     maxTokens?: IntFieldUpdateOperationsInput | number
     baseUrl?: NullableStringFieldUpdateOperationsInput | string | null
+    splitThreshold?: IntFieldUpdateOperationsInput | number
     isActive?: BoolFieldUpdateOperationsInput | boolean
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -20815,6 +20841,7 @@ export namespace Prisma {
     temperature?: FloatFieldUpdateOperationsInput | number
     maxTokens?: IntFieldUpdateOperationsInput | number
     baseUrl?: NullableStringFieldUpdateOperationsInput | string | null
+    splitThreshold?: IntFieldUpdateOperationsInput | number
     isActive?: BoolFieldUpdateOperationsInput | boolean
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -20827,6 +20854,7 @@ export namespace Prisma {
     temperature?: number
     maxTokens?: number
     baseUrl?: string | null
+    splitThreshold?: number
     isActive?: boolean
     createdAt?: Date | string
     updatedAt?: Date | string
@@ -20839,6 +20867,7 @@ export namespace Prisma {
     temperature?: FloatFieldUpdateOperationsInput | number
     maxTokens?: IntFieldUpdateOperationsInput | number
     baseUrl?: NullableStringFieldUpdateOperationsInput | string | null
+    splitThreshold?: IntFieldUpdateOperationsInput | number
     isActive?: BoolFieldUpdateOperationsInput | boolean
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -20851,6 +20880,7 @@ export namespace Prisma {
     temperature?: FloatFieldUpdateOperationsInput | number
     maxTokens?: IntFieldUpdateOperationsInput | number
     baseUrl?: NullableStringFieldUpdateOperationsInput | string | null
+    splitThreshold?: IntFieldUpdateOperationsInput | number
     isActive?: BoolFieldUpdateOperationsInput | boolean
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
@@ -21824,6 +21854,7 @@ export namespace Prisma {
     temperature?: SortOrder
     maxTokens?: SortOrder
     baseUrl?: SortOrder
+    splitThreshold?: SortOrder
     isActive?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
@@ -21832,6 +21863,7 @@ export namespace Prisma {
   export type AiConfigAvgOrderByAggregateInput = {
     temperature?: SortOrder
     maxTokens?: SortOrder
+    splitThreshold?: SortOrder
   }
 
   export type AiConfigMaxOrderByAggregateInput = {
@@ -21841,6 +21873,7 @@ export namespace Prisma {
     temperature?: SortOrder
     maxTokens?: SortOrder
     baseUrl?: SortOrder
+    splitThreshold?: SortOrder
     isActive?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
@@ -21853,6 +21886,7 @@ export namespace Prisma {
     temperature?: SortOrder
     maxTokens?: SortOrder
     baseUrl?: SortOrder
+    splitThreshold?: SortOrder
     isActive?: SortOrder
     createdAt?: SortOrder
     updatedAt?: SortOrder
@@ -21861,6 +21895,7 @@ export namespace Prisma {
   export type AiConfigSumOrderByAggregateInput = {
     temperature?: SortOrder
     maxTokens?: SortOrder
+    splitThreshold?: SortOrder
   }
 
   export type EnumAIProviderWithAggregatesFilter<$PrismaModel = never> = {

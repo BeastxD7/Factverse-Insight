@@ -11,7 +11,7 @@ export const aiConfigController = {
   },
 
   async update(req: Request, res: Response): Promise<void> {
-    const { provider, model, temperature, maxTokens, baseUrl } = req.body
+    const { provider, model, temperature, maxTokens, baseUrl, splitThreshold } = req.body
 
     // Ensure a config record exists — upsert on the first (and only) active one
     const existing = await prisma.aiConfig.findFirst({ where: { isActive: true } })
@@ -19,10 +19,10 @@ export const aiConfigController = {
     const config = existing
       ? await prisma.aiConfig.update({
           where: { id: existing.id },
-          data: { provider, model, temperature, maxTokens, baseUrl },
+          data: { provider, model, temperature, maxTokens, baseUrl, splitThreshold },
         })
       : await prisma.aiConfig.create({
-          data: { provider, model, temperature, maxTokens, baseUrl, isActive: true },
+          data: { provider, model, temperature, maxTokens, baseUrl, splitThreshold, isActive: true },
         })
 
     apiSuccess(res, config, "AI configuration updated")

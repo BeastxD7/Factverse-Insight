@@ -38,6 +38,24 @@ export async function fetchVideoMeta(videoId: string): Promise<VideoMeta> {
   }
 }
 
+// ─── Thumbnail ────────────────────────────────────────────────────────────────
+
+/**
+ * Returns the best available YouTube thumbnail URL.
+ * Tries maxresdefault (1280×720) first, falls back to hqdefault (480×360)
+ * which is guaranteed to exist for any video with a thumbnail.
+ */
+export async function getYoutubeThumbnail(videoId: string): Promise<string> {
+  const maxres = `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`
+  try {
+    const res = await fetch(maxres, { method: "HEAD" })
+    if (res.ok) return maxres
+  } catch {
+    // network issue — fall through to hqdefault
+  }
+  return `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`
+}
+
 // ─── Transcript fetching ──────────────────────────────────────────────────────
 
 interface TranscriptResult {

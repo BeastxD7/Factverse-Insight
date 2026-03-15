@@ -301,8 +301,9 @@ model AiConfig {
   temperature Float      @default(0.7)
   maxTokens   Int        @default(4000)
   // baseUrl is required for Azure OpenAI (endpoint URL) and optional for OpenRouter
-  baseUrl     String?
-  isActive    Boolean    @default(true)
+  baseUrl         String?
+  splitThreshold  Int        @default(25000)
+  isActive        Boolean    @default(true)
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 

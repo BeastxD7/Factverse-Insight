@@ -277,6 +277,7 @@ exports.Prisma.AiConfigScalarFieldEnum = {
   temperature: 'temperature',
   maxTokens: 'maxTokens',
   baseUrl: 'baseUrl',
+  splitThreshold: 'splitThreshold',
   isActive: 'isActive',
   createdAt: 'createdAt',
   updatedAt: 'updatedAt'

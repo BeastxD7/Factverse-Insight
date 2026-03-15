@@ -218,10 +218,11 @@ Return ONLY a JSON object:
    */
   async analyzeAndSplitTranscript(
     transcript: string,
-    videoMeta: { title: string; duration: number; channelName: string }
+    videoMeta: { title: string; duration: number; channelName: string },
+    splitThreshold: number = MIN_CHARS_FOR_SPLIT
   ): Promise<TranscriptSplitResult> {
     const shouldSplit =
-      transcript.length >= MIN_CHARS_FOR_SPLIT || videoMeta.duration >= MIN_DURATION_FOR_SPLIT
+      transcript.length >= splitThreshold || videoMeta.duration >= MIN_DURATION_FOR_SPLIT
 
     if (!shouldSplit) {
       return { shouldSplit: false, segments: [], contentMap: [] }

@@ -1,11 +1,25 @@
+import { cache } from "react"
 import Link from "next/link"
 import { notFound } from "next/navigation"
+import type { Metadata } from "next"
 import { Clock, Tag, ExternalLink, Calendar, Hash } from "lucide-react"
 import { marked } from "marked"
 import { serverApi } from "@/lib/api-server"
 import { Badge } from "@/components/ui/badge"
 import { PublicHeader } from "@/components/PublicHeader"
 import type { ArticleDetail } from "@news-app/types"
+import { ShareButton } from "@/components/ShareButton"
+
+const SITE_URL = "https://www.factverseinsights.com"
+
+// React cache deduplicates this call between generateMetadata and the page component
+const getArticle = cache(async (slug: string): Promise<ArticleDetail | null> => {
+  try {
+    return await serverApi.get<ArticleDetail>(`/articles/${slug}`)
+  } catch {
+    return null
+  }
+})
 
 function readTime(content: string): string {
   const mins = Math.ceil(content.length / 1000)
@@ -16,20 +30,58 @@ function articleHeroImage(id: string, ogImage: string | null): string {
   return ogImage ?? `https://picsum.photos/seed/${id}/1400/700`
 }
 
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>
+}): Promise<Metadata> {
+  const { slug } = await params
+  const article = await getArticle(slug)
+
+  if (!article) {
+    return { title: "Article Not Found" }
+  }
+
+  const title = article.metaTitle ?? article.title
+  const description = article.metaDescription ?? article.excerpt ?? undefined
+  const url = `${SITE_URL}/articles/${article.slug}`
+  const image = article.ogImage ?? `${SITE_URL}/logo-2000.png`
+
+  return {
+    title,
+    description,
+    keywords: article.keywords,
+    alternates: { canonical: url },
+    openGraph: {
+      type: "article",
+      url,
+      title,
+      description,
+      images: [{ url: image, width: 1200, height: 630, alt: title }],
+      publishedTime: article.publishedAt ?? article.createdAt,
+      modifiedTime: article.updatedAt,
+      authors: ["Factverse Insights"],
+      ...(article.category && { section: article.category.name }),
+      tags: article.tags.map((t) => t.name),
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+      images: [image],
+    },
+  }
+}
+
 export default async function ArticlePage({
   params,
 }: {
   params: Promise<{ slug: string }>
 }) {
   const { slug } = await params
+  const article = await getArticle(slug)
 
-  let article: ArticleDetail
-
-  try {
-    article = await serverApi.get<ArticleDetail>(`/articles/${slug}`)
-  } catch {
-    notFound()
-  }
+  if (!article) notFound()
 
   const dateStr = article.publishedAt ?? article.createdAt
   const displayDate = new Date(dateStr).toLocaleDateString("en-US", {
@@ -40,8 +92,67 @@ export default async function ArticlePage({
 
   const isYouTube = article.sourceType === "YOUTUBE_VIDEO" || article.sourceType === "YOUTUBE_CHANNEL"
 
+  const articleUrl = `${SITE_URL}/articles/${article.slug}`
+  const heroImage = articleHeroImage(article.id, article.ogImage)
+
+  // JSON-LD structured data
+  const articleJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "NewsArticle",
+    headline: article.title,
+    description: article.excerpt ?? undefined,
+    image: heroImage,
+    datePublished: article.publishedAt ?? article.createdAt,
+    dateModified: article.updatedAt,
+    author: {
+      "@type": "Organization",
+      name: "Factverse Insights",
+      url: SITE_URL,
+    },
+    publisher: {
+      "@type": "Organization",
+      name: "Factverse Insights",
+      url: SITE_URL,
+      logo: {
+        "@type": "ImageObject",
+        url: `${SITE_URL}/logo-2000.png`,
+      },
+    },
+    mainEntityOfPage: {
+      "@type": "WebPage",
+      "@id": articleUrl,
+    },
+    ...(article.keywords.length > 0 && { keywords: article.keywords.join(", ") }),
+    ...(article.category && { articleSection: article.category.name }),
+  }
+
+  const breadcrumbJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      { "@type": "ListItem", position: 1, name: "Home", item: SITE_URL },
+      ...(article.category
+        ? [{ "@type": "ListItem", position: 2, name: article.category.name, item: SITE_URL }]
+        : []),
+      {
+        "@type": "ListItem",
+        position: article.category ? 3 : 2,
+        name: article.title,
+        item: articleUrl,
+      },
+    ],
+  }
+
   return (
     <div className="min-h-screen bg-background">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(articleJsonLd) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }}
+      />
 
       <PublicHeader />
 
@@ -74,7 +185,8 @@ export default async function ArticlePage({
             </h1>
 
             {/* Meta row */}
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-neutral-500 dark:text-neutral-400 mb-8">
+            <div className="flex flex-wrap items-center justify-between gap-y-3 mb-8">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-neutral-500 dark:text-neutral-400">
               {/* Publisher */}
               <span className="flex items-center gap-1.5">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -104,12 +216,14 @@ export default async function ArticlePage({
               </span>
 
             </div>
+            <ShareButton title={article.title} url={articleUrl} excerpt={article.excerpt} />
+            </div>
 
             {/* Hero image */}
             <div className="rounded-2xl overflow-hidden bg-neutral-100 dark:bg-neutral-800 mb-10">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
-                src={articleHeroImage(article.id, article.ogImage)}
+                src={heroImage}
                 alt={article.title}
                 className="w-full object-cover max-h-120"
               />
@@ -138,14 +252,15 @@ export default async function ArticlePage({
               dangerouslySetInnerHTML={{ __html: await marked.parse(article.content) }}
             />
 
-            {/* Back link */}
-            <div className="mt-14 pt-8 border-t border-neutral-100 dark:border-neutral-800">
+            {/* Back link + share */}
+            <div className="mt-14 pt-8 border-t border-neutral-100 dark:border-neutral-800 flex items-center justify-between flex-wrap gap-4">
               <Link
                 href="/"
                 className="inline-flex items-center gap-2 text-sm text-neutral-500 hover:text-neutral-900 dark:hover:text-neutral-50 transition-colors font-medium"
               >
                 Back to all stories
               </Link>
+              <ShareButton title={article.title} url={articleUrl} excerpt={article.excerpt} />
             </div>
           </article>
 
