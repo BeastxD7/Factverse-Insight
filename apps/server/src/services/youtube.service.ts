@@ -78,21 +78,29 @@ function run(cmd: string, args: string[]): Promise<{ stdout: string; stderr: str
 
 // Python script that uses youtube-transcript-api (no JS runtime required).
 // Tries English first, falls back to any available language.
-// Supports proxy via YOUTUBE_PROXY_URL env var (needed on cloud VMs — Azure/AWS/GCP IPs are blocked by YouTube).
+// All imports are inside try/except so errors are always returned as JSON to stdout.
 const TRANSCRIPT_SCRIPT = String.raw`
-import sys, json
-from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound, TranscriptsDisabled
+import sys, json, os
 
 video_id = sys.argv[1]
 proxy_url = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else None
 
 try:
+    from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound
+
     if proxy_url:
-        from youtube_transcript_api.proxies import GenericProxyConfig
-        api = YouTubeTranscriptApi(proxy_config=GenericProxyConfig(https_url=proxy_url))
+        try:
+            from youtube_transcript_api.proxies import GenericProxyConfig
+            api = YouTubeTranscriptApi(proxy_config=GenericProxyConfig(https_url=proxy_url))
+        except (ImportError, AttributeError):
+            # Older version of the library — set env vars so requests picks them up
+            os.environ["HTTPS_PROXY"] = proxy_url
+            os.environ["HTTP_PROXY"] = proxy_url
+            api = YouTubeTranscriptApi()
     else:
         api = YouTubeTranscriptApi()
-    tl  = api.list(video_id)
+
+    tl = api.list(video_id)
 
     # Priority: manual English > auto English > any language
     transcript = None
@@ -123,9 +131,6 @@ try:
         "language": transcript.language_code,
     }))
 
-except TranscriptsDisabled:
-    print(json.dumps({"error": "captions disabled for this video"}))
-    sys.exit(1)
 except Exception as e:
     print(json.dumps({"error": str(e)}))
     sys.exit(1)
@@ -145,21 +150,20 @@ async function fetchViaTranscriptApi(
   const proxyUrl = process.env["YOUTUBE_PROXY_URL"] ?? ""
   const r = await run(pythonCmd, [scriptPath, videoId, proxyUrl])
 
-  if (r.code !== 0 || !r.stdout.trim()) {
-    console.log(`[youtube] transcript-api exited ${r.code}, stderr: ${r.stderr.slice(0, 300)}`)
-    return null
+  // Always try to parse stdout — the script emits JSON on both success and error
+  let parsed: { text?: string; duration?: number; language?: string; error?: string } = {}
+  if (r.stdout.trim()) {
+    try {
+      parsed = JSON.parse(r.stdout.trim()) as typeof parsed
+    } catch {
+      console.log(`[youtube] transcript-api bad JSON (code=${r.code}): ${r.stdout.slice(0, 200)}`)
+      return null
+    }
   }
 
-  let parsed: { text?: string; duration?: number; language?: string; error?: string }
-  try {
-    parsed = JSON.parse(r.stdout.trim()) as typeof parsed
-  } catch {
-    console.log(`[youtube] transcript-api bad JSON: ${r.stdout.slice(0, 200)}`)
-    return null
-  }
-
-  if (parsed.error || !parsed.text) {
-    console.log(`[youtube] transcript-api: ${parsed.error ?? "empty transcript"}`)
+  if (r.code !== 0 || parsed.error || !parsed.text) {
+    const reason = parsed.error ?? (r.stderr.slice(0, 200) || "no output")
+    console.log(`[youtube] transcript-api failed (code=${r.code}): ${reason}`)
     return null
   }
 
@@ -180,6 +184,8 @@ async function fetchViaYtDlp(videoId: string): Promise<TranscriptResult | null> 
   const tempDir = await mkdtemp(join(tmpdir(), "nf-yt-"))
   const outStem = join(tempDir, "sub")
   const videoUrl = `https://www.youtube.com/watch?v=${videoId}`
+  const proxyUrl = process.env["YOUTUBE_PROXY_URL"]
+  const proxyFlags = proxyUrl ? ["--proxy", proxyUrl] : []
   function buildArgs(extraFlags: string[]): string[] {
     return [
       "--write-auto-subs",
@@ -187,6 +193,7 @@ async function fetchViaYtDlp(videoId: string): Promise<TranscriptResult | null> 
       "--sub-format", "json3",
       "--skip-download",
       "--js-runtimes", "node",
+      ...proxyFlags,
       ...extraFlags,
       "-o", outStem,
       videoUrl,
