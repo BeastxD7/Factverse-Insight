@@ -30,6 +30,9 @@ const envSchema = z.object({
   NEWSAPI_KEY: z.string().optional(),
   GNEWS_API_KEY: z.string().optional(),
   YOUTUBE_API_KEY: z.string().optional(),
+
+  // Image API — used to auto-fetch cover images during article generation
+  PEXELS_API_KEY: z.string().optional(),
 })
 
 const parsed = envSchema.safeParse(process.env)

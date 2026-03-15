@@ -1,17 +1,15 @@
-export type SingleArticleResult = {
-  articleId: string
+export interface SingleArticleResult {
   articleTitle: string
   articleSlug: string
 }
 
-export type MultiArticleResult = {
+export interface MultiArticleResult {
   articleCount: number
-  articles: Array<{ id: string; title: string; slug: string }>
-  splitReason: string
+  articles: Array<{ title: string; slug: string }>
 }
 
-export type JobResult = SingleArticleResult | MultiArticleResult | null
+export type JobResult = SingleArticleResult | MultiArticleResult | null | undefined
 
-export function isMultiArticleResult(r: JobResult): r is MultiArticleResult {
-  return r != null && "articleCount" in r
+export function isMultiArticleResult(result: JobResult): result is MultiArticleResult {
+  return result != null && "articleCount" in result
 }

@@ -2,6 +2,7 @@ import { Worker, type Job } from "bullmq"
 import { env } from "../config/env"
 import { prisma } from "../lib/prisma"
 import { aiService } from "../services/ai.service"
+import { imageService } from "../services/image.service"
 import { fetchTranscript, fetchVideoMeta } from "../services/youtube.service"
 import type { YoutubeProcessPayload, ArticleGenerationResult } from "@news-app/types"
 
@@ -28,7 +29,8 @@ async function uniqueSlug(base: string): Promise<string> {
 async function createArticleFromResult(
   result: ArticleGenerationResult,
   videoUrl: string,
-  jobRunId?: string
+  jobRunId?: string,
+  ogImage?: string | null
 ): Promise<{ id: string; title: string; slug: string }> {
   // Resolve category
   let categoryId: string | undefined
@@ -69,6 +71,7 @@ async function createArticleFromResult(
       aiGenerated: true,
       aiModel: result.aiModel,
       aiPromptVersion: result.aiPromptVersion,
+      ...(ogImage && { ogImage }),
       ...(categoryId && { categoryId }),
       ...(jobRunId && { jobRunId }),
       tags: {
@@ -138,7 +141,10 @@ async function processYoutubeVideo(job: Job<YoutubeProcessPayload>): Promise<voi
           splitAnalysis.contentMap
         )
 
-        const article = await createArticleFromResult(result, videoUrl, jobRun?.id)
+        const coverImage = await imageService.fetchCoverImage(
+          result.keywords.slice(0, 3).join(" ") || result.title
+        )
+        const article = await createArticleFromResult(result, videoUrl, jobRun?.id, coverImage)
         articles.push(article)
         console.log(`[youtube-process] Created article "${article.title}" (${article.id})`)
       }
@@ -181,7 +187,10 @@ async function processYoutubeVideo(job: Job<YoutubeProcessPayload>): Promise<voi
       const result = await aiService.generateArticleFromTranscript(transcript, topicKeywords, { ...meta, url: videoUrl })
       console.log(`[youtube-process] AI generated article: "${result.title}"`)
 
-      const article = await createArticleFromResult(result, videoUrl, jobRun?.id)
+      const coverImage = await imageService.fetchCoverImage(
+        result.keywords.slice(0, 3).join(" ") || result.title
+      )
+      const article = await createArticleFromResult(result, videoUrl, jobRun?.id, coverImage)
       console.log(`[youtube-process] Created article "${article.title}" (${article.id})`)
 
       if (jobRun) {

@@ -24,7 +24,6 @@ import {
   Minus,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { env } from "@/lib/env"
 
 interface ArticleEditorProps {
   content: string // Markdown format
@@ -49,7 +48,8 @@ export function ArticleEditor({ content, onChange }: ArticleEditorProps) {
     ],
     content,
     onUpdate: ({ editor: e }) => {
-      onChange(e.storage.markdown.getMarkdown())
+      const storage = e.storage as unknown as { markdown: { getMarkdown: () => string } }
+      onChange(storage.markdown.getMarkdown())
     },
     editorProps: {
       attributes: {
@@ -73,7 +73,7 @@ export function ArticleEditor({ content, onChange }: ArticleEditorProps) {
       formData.append("image", file)
 
       try {
-        const res = await fetch(`${env.NEXT_PUBLIC_API_URL}/api/v1/admin/upload`, {
+        const res = await fetch("/api/admin/upload", {
           method: "POST",
           body: formData,
         })
