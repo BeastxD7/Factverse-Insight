@@ -10,7 +10,7 @@ import { PublicHeader } from "@/components/PublicHeader"
 import type { ArticleDetail } from "@news-app/types"
 import { ShareButton } from "@/components/ShareButton"
 
-const SITE_URL = "https://www.factverseinsights.com"
+const SITE_URL = "https://www.factverseinsight.com"
 
 // React cache deduplicates this call between generateMetadata and the page component
 const getArticle = cache(async (slug: string): Promise<ArticleDetail | null> => {

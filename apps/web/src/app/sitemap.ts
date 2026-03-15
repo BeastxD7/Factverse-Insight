@@ -2,7 +2,7 @@ import type { MetadataRoute } from "next"
 import { serverApi } from "@/lib/api-server"
 import type { ArticleListItem } from "@news-app/types"
 
-const SITE_URL = "https://www.factverseinsights.com"
+const SITE_URL = "https://www.factverseinsight.com"
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const staticRoutes: MetadataRoute.Sitemap = [

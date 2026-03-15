@@ -4,7 +4,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import "./globals.css";
 
-const SITE_URL = "https://www.factverseinsights.com"
+const SITE_URL = "https://www.factverseinsight.com"
 const SITE_NAME = "Factverse Insights"
 const SITE_DESCRIPTION =
   "Factverse Insights delivers High Quality Content from Well Known Creators, fact-checked news and in-depth analysis across politics, technology, science, and world affairs. Stay informed with intelligent, curated stories."

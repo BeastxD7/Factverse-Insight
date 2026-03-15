@@ -8,7 +8,13 @@ export function createApp() {
   const app = express()
 
   // Middleware
-  app.use(cors({ origin: process.env.NEXTAUTH_URL ?? "http://localhost:3000" }))
+  const allowedOrigins = [
+    "http://localhost:3000",
+    "https://factverseinsight.com",
+    "https://www.factverseinsight.com",
+    ...(process.env.NEXTAUTH_URL ? [process.env.NEXTAUTH_URL] : []),
+  ]
+  app.use(cors({ origin: allowedOrigins }))
   app.use(express.json({ limit: "10mb" }))
   app.use(express.urlencoded({ extended: true }))
 

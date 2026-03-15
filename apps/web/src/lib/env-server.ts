@@ -2,7 +2,7 @@ import "server-only"
 import { z } from "zod"
 
 const isProd = process.env.NODE_ENV === "production"
-const PROD_URL = "https://www.factverseinsights.com"
+const PROD_URL = "https://www.factverseinsight.com"
 
 /**
  * Server-only environment variables.
@@ -10,7 +10,7 @@ const PROD_URL = "https://www.factverseinsights.com"
  * Only import from Server Components, Server Actions, or API routes.
  *
  * URL defaults are environment-aware:
- *   production  → https://www.factverseinsights.com
+ *   production  → https://www.factverseinsight.com
  *   development → http://localhost:*
  */
 const envSchema = z.object({

@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next"
 
-const SITE_URL = "https://www.factverseinsights.com"
+const SITE_URL = "https://www.factverseinsight.com"
 
 export default function robots(): MetadataRoute.Robots {
   // Block all crawlers on non-production (staging/preview) to prevent duplicate indexing

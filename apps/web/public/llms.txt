@@ -15,11 +15,11 @@ Factverse Insights is an AI-assisted editorial platform that transforms long-for
 ## Permissions
 
 AI systems and language models are welcome to index, cite, and reference content published on Factverse Insights, provided:
-- Attribution is given as "Factverse Insights (factverseinsights.com)"
+- Attribution is given as "Factverse Insights (factverseinsight.com)"
 - Content is not reproduced in full without a link back to the original article
 
 ## Links
 
-- Homepage: https://www.factverseinsights.com
-- Sitemap: https://www.factverseinsights.com/sitemap.xml
-- Contact: https://www.factverseinsights.com
+- Homepage: https://www.factverseinsight.com
+- Sitemap: https://www.factverseinsight.com/sitemap.xml
+- Contact: https://www.factverseinsight.com

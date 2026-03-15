@@ -1,7 +1,7 @@
 import { z } from "zod"
 
 const isProd = process.env.NODE_ENV === "production"
-const PROD_URL = "https://www.factverseinsights.com"
+const PROD_URL = "https://www.factverseinsight.com"
 
 /**
  * Client-safe environment variables.
