@@ -146,6 +146,7 @@ async function fetchViaTranscriptApi(
   const r = await run(pythonCmd, [scriptPath, videoId, proxyUrl])
 
   if (r.code !== 0 || !r.stdout.trim()) {
+    console.log(`[youtube] transcript-api exited ${r.code}, stderr: ${r.stderr.slice(0, 300)}`)
     return null
   }
 
@@ -153,6 +154,7 @@ async function fetchViaTranscriptApi(
   try {
     parsed = JSON.parse(r.stdout.trim()) as typeof parsed
   } catch {
+    console.log(`[youtube] transcript-api bad JSON: ${r.stdout.slice(0, 200)}`)
     return null
   }
 
@@ -195,7 +197,11 @@ async function fetchViaYtDlp(videoId: string): Promise<TranscriptResult | null> 
     const args = buildArgs(flags)
     const pythonCmd = process.platform === "win32" ? "python" : "python3"
     let r = await run(pythonCmd, ["-m", "yt_dlp", ...args])
-    if (r.code !== 0) await run("yt-dlp", args)
+    if (r.code !== 0) {
+      console.log(`[youtube] yt-dlp (python) stderr: ${r.stderr.slice(0, 300)}`)
+      r = await run("yt-dlp", args)
+      if (r.code !== 0) console.log(`[youtube] yt-dlp stderr: ${r.stderr.slice(0, 300)}`)
+    }
   }
 
   async function findJson3(): Promise<string | null> {
