@@ -91,7 +91,10 @@ try:
     if proxy_url:
         try:
             from youtube_transcript_api.proxies import GenericProxyConfig
-            api = YouTubeTranscriptApi(proxy_config=GenericProxyConfig(https_url=proxy_url))
+            api = YouTubeTranscriptApi(proxy_config=GenericProxyConfig(
+                http_url=proxy_url,
+                https_url=proxy_url,
+            ))
         except (ImportError, AttributeError):
             # Older version of the library — set env vars so requests picks them up
             os.environ["HTTPS_PROXY"] = proxy_url
@@ -193,6 +196,7 @@ async function fetchViaYtDlp(videoId: string): Promise<TranscriptResult | null> 
       "--sub-format", "json3",
       "--skip-download",
       "--js-runtimes", "node",
+      "--remote-components", "ejs:github",
       ...proxyFlags,
       ...extraFlags,
       "-o", outStem,
