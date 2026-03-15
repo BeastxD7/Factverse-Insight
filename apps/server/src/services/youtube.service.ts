@@ -77,18 +77,26 @@ function run(cmd: string, args: string[]): Promise<{ stdout: string; stderr: str
 }
 
 // Python script that uses youtube-transcript-api (no JS runtime required).
-// Tries English first, falls back to any available language.
+// Auth priority: cookies (most reliable) > proxy > direct
 // All imports are inside try/except so errors are always returned as JSON to stdout.
 const TRANSCRIPT_SCRIPT = String.raw`
 import sys, json, os
 
-video_id = sys.argv[1]
-proxy_url = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else None
+video_id   = sys.argv[1]
+proxy_url  = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else None
+cookie_path = sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] else None
 
 try:
     from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound
 
-    if proxy_url:
+    if cookie_path:
+        import requests, http.cookiejar
+        session = requests.Session()
+        jar = http.cookiejar.MozillaCookieJar()
+        jar.load(cookie_path, ignore_discard=True, ignore_expires=True)
+        session.cookies = jar
+        api = YouTubeTranscriptApi(http_client=session)
+    elif proxy_url:
         try:
             from youtube_transcript_api.proxies import GenericProxyConfig
             api = YouTubeTranscriptApi(proxy_config=GenericProxyConfig(
@@ -96,7 +104,6 @@ try:
                 https_url=proxy_url,
             ))
         except (ImportError, AttributeError):
-            # Older version of the library — set env vars so requests picks them up
             os.environ["HTTPS_PROXY"] = proxy_url
             os.environ["HTTP_PROXY"] = proxy_url
             api = YouTubeTranscriptApi()
@@ -150,17 +157,18 @@ async function fetchViaTranscriptApi(
 ): Promise<TranscriptResult | null> {
   const pythonCmd = process.platform === "win32" ? "python" : "python3"
 
-  // Pick one random proxy per call — BullMQ exponential backoff handles retries with a fresh random proxy each time
+  // Auth priority: cookies > random proxy > no auth
+  const cookiesPath = process.env["YOUTUBE_COOKIES_PATH"] ?? ""
   const proxyList: string[] = (process.env["YOUTUBE_PROXIES"] ?? process.env["YOUTUBE_PROXY_URL"] ?? "")
-    .split(",")
-    .map((p) => p.trim())
-    .filter(Boolean)
-
-  const proxy = proxyList.length > 0
+    .split(",").map((p) => p.trim()).filter(Boolean)
+  const proxy = cookiesPath ? "" : (proxyList.length > 0
     ? proxyList[Math.floor(Math.random() * proxyList.length)]!
-    : ""
+    : "")
 
-  const r = await run(pythonCmd, [scriptPath, videoId, proxy])
+  if (cookiesPath) console.log(`[youtube] transcript-api using cookies`)
+  else if (proxy) console.log(`[youtube] transcript-api using proxy ${proxy.split("@")[1] ?? proxy}`)
+
+  const r = await run(pythonCmd, [scriptPath, videoId, proxy, cookiesPath])
 
   let parsed: { text?: string; duration?: number; language?: string; error?: string } = {}
   if (r.stdout.trim()) {
@@ -197,8 +205,10 @@ async function fetchViaYtDlp(videoId: string): Promise<TranscriptResult | null> 
   const tempDir = await mkdtemp(join(tmpdir(), "nf-yt-"))
   const outStem = join(tempDir, "sub")
   const videoUrl = `https://www.youtube.com/watch?v=${videoId}`
+  const cookiesPath = process.env["YOUTUBE_COOKIES_PATH"]
   const proxyUrl = process.env["YOUTUBE_PROXY_URL"]
-  const proxyFlags = proxyUrl ? ["--proxy", proxyUrl] : []
+  const cookieFlags = cookiesPath ? ["--cookies", cookiesPath] : []
+  const proxyFlags = (!cookiesPath && proxyUrl) ? ["--proxy", proxyUrl] : []
   function buildArgs(extraFlags: string[]): string[] {
     return [
       "--write-auto-subs",
@@ -206,7 +216,7 @@ async function fetchViaYtDlp(videoId: string): Promise<TranscriptResult | null> 
       "--sub-format", "json3",
       "--skip-download",
       "--js-runtimes", "node",
-      "--remote-components", "ejs:github",
+      ...cookieFlags,
       ...proxyFlags,
       ...extraFlags,
       "-o", outStem,
