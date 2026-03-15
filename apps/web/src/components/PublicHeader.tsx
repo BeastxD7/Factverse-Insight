@@ -25,10 +25,10 @@ export async function PublicHeader({ activeCategory }: PublicHeaderProps) {
   return (
     <header className="sticky top-0 z-20">
       <div className="bg-background/90 backdrop-blur-xl border-b border-border/60 shadow-sm dark:shadow-none">
-        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center gap-6">
+        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center">
 
-          {/* Logo */}
-          <Link href="/" className="flex items-center gap-3 group shrink-0">
+          {/* Logo — takes its natural width, pushes nothing */}
+          <Link href="/" className="flex items-center gap-3 group shrink-0 flex-1">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src="/logo.png"
@@ -41,9 +41,9 @@ export async function PublicHeader({ activeCategory }: PublicHeaderProps) {
             </div>
           </Link>
 
-          {/* Category nav — large screens only */}
+          {/* Category nav — naturally centred between the two flex-1 sides */}
           {categories.length > 0 && (
-            <nav className="hidden lg:flex items-center gap-0.5 flex-1 overflow-hidden">
+            <nav className="hidden lg:flex items-center gap-1 shrink-0">
               <Link
                 href="/"
                 className={`px-3 py-1.5 rounded-lg text-sm font-semibold tracking-wide transition-colors whitespace-nowrap ${
@@ -70,8 +70,8 @@ export async function PublicHeader({ activeCategory }: PublicHeaderProps) {
             </nav>
           )}
 
-          {/* Right actions */}
-          <div className="flex items-center gap-1 ml-auto shrink-0">
+          {/* Right actions — flex-1 + justify-end mirrors the logo side */}
+          <div className="flex items-center gap-1 flex-1 justify-end shrink-0">
             <SearchModal />
             <ThemeToggle />
           </div>

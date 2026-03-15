@@ -64,9 +64,9 @@ export const metadata: Metadata = {
     description: SITE_DESCRIPTION,
     images: [
       {
-        url: `${SITE_URL}/logo-2000.png`,
-        width: 2000,
-        height: 2000,
+        url: `${SITE_URL}/logo.png`,
+        width: 500,
+        height: 500,
         alt: `${SITE_NAME} | Insights, News & Analysis`,
       },
     ],
@@ -77,7 +77,7 @@ export const metadata: Metadata = {
     creator: "@factverseinsights",
     title: `${SITE_NAME} | Insights, News & Analysis`,
     description: SITE_DESCRIPTION,
-    images: [`${SITE_URL}/logo-2000.png`],
+    images: [`${SITE_URL}/logo.png`],
   },
   alternates: {
     canonical: SITE_URL,
