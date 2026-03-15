@@ -134,7 +134,9 @@ async function fetchViaTranscriptApi(
   videoId: string,
   scriptPath: string
 ): Promise<TranscriptResult | null> {
-  const r = await run("python", [scriptPath, videoId])
+  // Use python3 on Linux, fall back to python on Windows
+  const pythonCmd = process.platform === "win32" ? "python" : "python3"
+  const r = await run(pythonCmd, [scriptPath, videoId])
 
   if (r.code !== 0 || !r.stdout.trim()) {
     return null
@@ -184,7 +186,8 @@ async function fetchViaYtDlp(videoId: string): Promise<TranscriptResult | null> 
 
   async function runYtDlp(flags: string[]): Promise<void> {
     const args = buildArgs(flags)
-    let r = await run("python", ["-m", "yt_dlp", ...args])
+    const pythonCmd = process.platform === "win32" ? "python" : "python3"
+    let r = await run(pythonCmd, ["-m", "yt_dlp", ...args])
     if (r.code !== 0) await run("yt-dlp", args)
   }
 
