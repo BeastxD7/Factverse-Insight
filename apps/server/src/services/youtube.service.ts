@@ -184,6 +184,7 @@ async function fetchViaYtDlp(videoId: string): Promise<TranscriptResult | null> 
       "--write-subs",
       "--sub-format", "json3",
       "--skip-download",
+      "--js-runtimes", "node",
       ...extraFlags,
       "-o", outStem,
       videoUrl,
