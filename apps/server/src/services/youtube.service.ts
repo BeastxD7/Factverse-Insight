@@ -34,7 +34,7 @@ export async function fetchVideoMeta(videoId: string): Promise<VideoMeta> {
   return {
     title: data.title,
     channelName: data.author_name,
-    duration: 0, // estimated from transcript segments
+    duration: 0,
   }
 }
 
@@ -43,12 +43,9 @@ export async function fetchVideoMeta(videoId: string): Promise<VideoMeta> {
 interface TranscriptResult {
   text: string
   estimatedDurationSecs: number
-  language: string // e.g. "en", "hi", "en-orig"
+  language: string
 }
 
-/**
- * Run a shell command and return { stdout, stderr, code }.
- */
 function run(cmd: string, args: string[]): Promise<{ stdout: string; stderr: string; code: number }> {
   return new Promise((resolve) => {
     const proc = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] })
@@ -61,10 +58,7 @@ function run(cmd: string, args: string[]): Promise<{ stdout: string; stderr: str
   })
 }
 
-/**
- * Find the first .json3 subtitle file written by yt-dlp in a directory.
- * yt-dlp names files as: <stem>.<lang>.json3 (e.g. sub.en.json3, sub.hi.json3)
- */
+/** Find the first .json3 subtitle file yt-dlp wrote in a directory. */
 async function findJson3File(dir: string): Promise<string | null> {
   try {
     const files = await readdir(dir)
@@ -75,20 +69,13 @@ async function findJson3File(dir: string): Promise<string | null> {
   }
 }
 
-/**
- * Extract language code from a yt-dlp subtitle filename.
- * e.g. "sub.en.json3" → "en", "sub.hi-orig.json3" → "hi-orig"
- */
+/** Extract lang code from yt-dlp filename: "sub.en.json3" → "en" */
 function langFromFilename(filePath: string): string {
-  const name = filePath.split(/[/\\]/).pop() ?? ""
-  // pattern: <stem>.<lang>.json3
-  const parts = name.replace(/\.json3$/, "").split(".")
+  const name = (filePath.split(/[/\\]/).pop() ?? "").replace(/\.json3$/, "")
+  const parts = name.split(".")
   return parts.length >= 2 ? (parts[parts.length - 1] ?? "unknown") : "unknown"
 }
 
-/**
- * Parse a yt-dlp json3 subtitle file into plain text + duration.
- */
 async function parseJson3(filePath: string): Promise<{ text: string; estimatedDurationSecs: number }> {
   const raw = await readFile(filePath, "utf8")
   const data = JSON.parse(raw) as {
@@ -119,73 +106,77 @@ async function parseJson3(filePath: string): Promise<{ text: string; estimatedDu
 }
 
 /**
+ * Run yt-dlp (tries `python -m yt_dlp` first, falls back to `yt-dlp` CLI).
+ * Returns stderr for logging — does NOT throw on non-zero exit because yt-dlp
+ * sometimes exits 1 even when it successfully writes a subtitle file
+ * (e.g. the "No JS runtime" warning causes a non-zero exit in some versions).
+ */
+async function runYtDlp(args: string[]): Promise<string> {
+  let r = await run("python", ["-m", "yt_dlp", ...args])
+  if (r.code !== 0) {
+    r = await run("yt-dlp", args)
+  }
+  return r.stderr
+}
+
+/**
  * Fetch transcript for a YouTube video using yt-dlp.
  *
  * Strategy:
- * 1. Try English captions first (manual + auto-generated), prefer en-orig
- * 2. If no English available, fall back to any language (video's original language)
+ * 1. Try English captions (manual + auto-generated): --sub-lang en,en.*
+ * 2. If no English file written, fetch all available languages: --all-subs
+ * 3. Parse whatever .json3 file yt-dlp wrote; detect language from filename
  *
- * Uses non-JS player clients (tv_embedded, web_embedded, ios) to avoid the
- * "No supported JavaScript runtime" warning from recent yt-dlp versions.
+ * Non-zero exit from yt-dlp is tolerated — the "No JS runtime" warning causes
+ * exit code 1 in some yt-dlp versions even when subtitle data is available.
+ * We detect success by checking whether a .json3 file was actually written.
  */
 export async function fetchTranscript(videoId: string): Promise<TranscriptResult> {
   const tempDir = await mkdtemp(join(tmpdir(), "nf-yt-"))
   const outStem = join(tempDir, "sub")
   const videoUrl = `https://www.youtube.com/watch?v=${videoId}`
 
-  // Player clients that don't require a JS runtime (avoids deno/node requirement)
-  const playerArgs = ["--extractor-args", "youtube:player_client=tv_embedded,web_embedded,ios"]
-
-  function buildArgs(subLangOrFlag: string[]): string[] {
+  function buildArgs(extraFlags: string[]): string[] {
     return [
       "--write-auto-subs",
-      "--write-subs",      // also fetch manually uploaded captions
+      "--write-subs",       // also fetch manually uploaded captions
       "--sub-format", "json3",
       "--skip-download",
-      ...playerArgs,
-      ...subLangOrFlag,
+      ...extraFlags,
       "-o", outStem,
       videoUrl,
     ]
   }
 
-  async function ytdlp(subLangOrFlag: string[]): Promise<void> {
-    const args = buildArgs(subLangOrFlag)
-    let r = await run("python", ["-m", "yt_dlp", ...args])
-    if (r.code !== 0) {
-      r = await run("yt-dlp", args)
-    }
-    // Non-zero exit is OK here — we check for the file instead of the exit code
-    // to handle cases where yt-dlp exits 1 but still writes a subtitle file.
-    void r
-  }
-
   try {
-    // ── Attempt 1: English captions (manual or auto-generated) ──────────────
-    await ytdlp(["--sub-lang", "en,en.*"])
+    // ── Attempt 1: English captions ─────────────────────────────────────────
+    let stderr = await runYtDlp(buildArgs(["--sub-lang", "en,en.*"]))
     let subFile = await findJson3File(tempDir)
 
-    // ── Attempt 2: Fall back to original language (any) ─────────────────────
     if (!subFile) {
-      // --all-subs downloads every available subtitle track
-      await ytdlp(["--all-subs"])
-      subFile = await findJson3File(tempDir)
-    }
+      console.log(`[youtube] No English captions for ${videoId}, trying all languages...`)
+      if (stderr) console.log(`[youtube] yt-dlp stderr: ${stderr.slice(0, 400)}`)
 
-    if (!subFile) {
-      throw new Error(
-        `No transcript available for video ${videoId}. ` +
-        "The video may not have captions enabled."
-      )
+      // ── Attempt 2: Any language auto-captions ──────────────────────────────
+      stderr = await runYtDlp(buildArgs(["--all-subs"]))
+      subFile = await findJson3File(tempDir)
+
+      if (!subFile) {
+        console.log(`[youtube] yt-dlp stderr (all-subs): ${stderr.slice(0, 400)}`)
+        throw new Error(
+          `No transcript available for video ${videoId}. ` +
+          "The video may not have captions enabled."
+        )
+      }
     }
 
     const language = langFromFilename(subFile)
     const { text, estimatedDurationSecs } = await parseJson3(subFile)
 
-    if (language !== "en" && !language.startsWith("en")) {
+    if (!language.startsWith("en")) {
       console.log(
-        `[youtube] No English captions found for ${videoId}. ` +
-        `Using "${language}" captions — AI will translate to English.`
+        `[youtube] No English captions for ${videoId}. ` +
+        `Using "${language}" — AI will write article in English.`
       )
     }
 
