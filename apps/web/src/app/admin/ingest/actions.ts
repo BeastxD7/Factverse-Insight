@@ -66,9 +66,11 @@ export async function getYoutubeJobs(
       pageSize: String(pageSize),
       ...(status && status !== "ALL" && { status }),
     })
-    const res = await serverApi.getRaw(`/admin/jobs?${params}`)
+    const res = await serverApi.getRaw(`/admin/jobs?${params}`) as {
+      data?: unknown; total?: number; page?: number; pageSize?: number; totalPages?: number
+    }
     return {
-      items: Array.isArray(res.data) ? res.data : [],
+      items: Array.isArray(res.data) ? (res.data as JobStatus[]) : [],
       total: res.total ?? 0,
       page: res.page ?? page,
       pageSize: res.pageSize ?? pageSize,
