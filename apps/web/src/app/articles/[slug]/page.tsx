@@ -27,6 +27,24 @@ function readTime(content: string): string {
   return `${mins} min read`
 }
 
+/** Parse **Question?** / Answer pairs from a ## Frequently Asked Questions section */
+function parseFaq(markdown: string): Array<{ question: string; answer: string }> | null {
+  const sectionMatch = markdown.match(
+    /^##\s+(?:FAQ|Frequently Asked Questions)[^\n]*\n([\s\S]+?)(?=\n^##|\s*$)/im
+  )
+  if (!sectionMatch?.[1]) return null
+
+  const pairs: Array<{ question: string; answer: string }> = []
+  const qaRegex = /\*\*([^*]+?\??)\*\*\s*\n+([\s\S]+?)(?=\n\*\*[^*]+?\*\*|\s*$)/g
+  let match: RegExpExecArray | null
+  while ((match = qaRegex.exec(sectionMatch[1])) !== null) {
+    const question = match[1].trim()
+    const answer = match[2].trim().replace(/\n+/g, " ").replace(/\*\*/g, "")
+    if (question && answer) pairs.push({ question, answer })
+  }
+  return pairs.length > 0 ? pairs : null
+}
+
 function articleHeroImage(id: string, ogImage: string | null): string {
   return ogImage ?? `https://picsum.photos/seed/${id}/1400/700`
 }
@@ -98,16 +116,26 @@ export default async function ArticlePage({
 
   // JSON-LD structured data
   const wordCount = article.content.trim().split(/\s+/).length
+  const faqItems = parseFaq(article.content)
   const articleJsonLd = {
     "@context": "https://schema.org",
     "@type": "NewsArticle",
     headline: article.title,
     description: article.excerpt ?? undefined,
     abstract: article.excerpt ?? undefined,
-    image: heroImage,
+    image: [
+      {
+        "@type": "ImageObject",
+        url: heroImage,
+        width: 1400,
+        height: 700,
+      },
+    ],
+    thumbnailUrl: heroImage,
     datePublished: article.publishedAt ?? article.createdAt,
     dateModified: article.updatedAt,
     wordCount,
+    articleBody: article.content.replace(/#{1,6}\s|[*_`>\-]/g, "").slice(0, 5000),
     author: {
       "@type": "Organization",
       name: "Factverse Insights",
@@ -115,6 +143,8 @@ export default async function ArticlePage({
       logo: {
         "@type": "ImageObject",
         url: `${SITE_URL}/logo.png`,
+        width: 500,
+        height: 500,
       },
     },
     publisher: {
@@ -124,6 +154,8 @@ export default async function ArticlePage({
       logo: {
         "@type": "ImageObject",
         url: `${SITE_URL}/logo.png`,
+        width: 500,
+        height: 500,
       },
     },
     mainEntityOfPage: {
@@ -139,6 +171,18 @@ export default async function ArticlePage({
       isBasedOn: { "@type": "WebPage", url: article.sourceUrl },
     }),
   }
+
+  const faqJsonLd = faqItems
+    ? {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        mainEntity: faqItems.map(({ question, answer }) => ({
+          "@type": "Question",
+          name: question,
+          acceptedAnswer: { "@type": "Answer", text: answer },
+        })),
+      }
+    : null
 
   const breadcrumbJsonLd = {
     "@context": "https://schema.org",
@@ -167,6 +211,12 @@ export default async function ArticlePage({
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }}
       />
+      {faqJsonLd && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
+        />
+      )}
 
       <PublicHeader />
 

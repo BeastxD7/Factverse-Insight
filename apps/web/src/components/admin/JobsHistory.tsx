@@ -1,9 +1,9 @@
 "use client"
 
-import { useState, useTransition } from "react"
-import { CheckCircle, XCircle, Clock, Loader2, ChevronLeft, ChevronRight } from "lucide-react"
+import { useState, useTransition, useEffect, useRef } from "react"
+import { CheckCircle, XCircle, Clock, Loader2, ChevronLeft, ChevronRight, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { getYoutubeJobs, type JobStatus, type JobsPage } from "@/app/admin/ingest/actions"
+import { getYoutubeJobs, bulkDeleteJobs, type JobStatus, type JobsPage } from "@/app/admin/ingest/actions"
 import { isMultiArticleResult } from "@/app/admin/ingest/types"
 
 const STATUS_FILTERS = ["ALL", "PENDING", "RUNNING", "COMPLETED", "FAILED"] as const
@@ -36,9 +36,10 @@ function jobSummary(job: JobStatus): { title: string; sub?: string } {
 }
 
 export function JobsHistory({ initialPage }: { initialPage: JobsPage }) {
-  const [page, setPage]         = useState(initialPage)
-  const [filter, setFilter]     = useState<StatusFilter>("ALL")
+  const [page, setPage]              = useState(initialPage)
+  const [filter, setFilter]          = useState<StatusFilter>("ALL")
   const [isPending, startTransition] = useTransition()
+  const [isDeleting, setIsDeleting]  = useState(false)
 
   function load(nextPage: number, nextFilter: StatusFilter): void {
     startTransition(async () => {
@@ -48,28 +49,85 @@ export function JobsHistory({ initialPage }: { initialPage: JobsPage }) {
     })
   }
 
+  async function handleBulkDelete(): Promise<void> {
+    if (!confirm("Delete all queued and failed jobs?")) return
+    setIsDeleting(true)
+    await bulkDeleteJobs()
+    const result = await getYoutubeJobs(1, filter)
+    setPage(result)
+    setIsDeleting(false)
+  }
+
+  // Auto-poll every 3s when there are active jobs
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const pageRef = useRef(page)
+  const filterRef = useRef(filter)
+  pageRef.current = page
+  filterRef.current = filter
+
+  useEffect(() => {
+    const hasActive = page.items.some(
+      (j) => j.status === "PENDING" || j.status === "RUNNING"
+    )
+
+    if (hasActive && !pollingRef.current) {
+      pollingRef.current = setInterval(() => {
+        startTransition(async () => {
+          const result = await getYoutubeJobs(pageRef.current.page, filterRef.current)
+          setPage(result)
+        })
+      }, 3000)
+    }
+
+    if (!hasActive && pollingRef.current) {
+      clearInterval(pollingRef.current)
+      pollingRef.current = null
+    }
+
+    return () => {
+      if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null }
+    }
+  }, [page.items])
+
   return (
     <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
       {/* Header */}
       <div className="px-5 py-3 border-b border-border/60 bg-muted/20 flex items-center justify-between gap-3 flex-wrap">
         <h3 className="text-sm font-semibold shrink-0">Job History</h3>
 
-        {/* Status filter tabs */}
-        <div className="flex gap-1 flex-wrap">
-          {STATUS_FILTERS.map((s) => (
-            <button
-              key={s}
-              disabled={isPending}
-              onClick={() => load(1, s)}
-              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
-                filter === s
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted hover:bg-muted/80 text-muted-foreground"
-              }`}
-            >
-              {s === "ALL" ? "All" : s.charAt(0) + s.slice(1).toLowerCase()}
-            </button>
-          ))}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Status filter tabs */}
+          <div className="flex gap-1 flex-wrap">
+            {STATUS_FILTERS.map((s) => (
+              <button
+                key={s}
+                disabled={isPending}
+                onClick={() => load(1, s)}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${
+                  filter === s
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted hover:bg-muted/80 text-muted-foreground"
+                }`}
+              >
+                {s === "ALL" ? "All" : s.charAt(0) + s.slice(1).toLowerCase()}
+              </button>
+            ))}
+          </div>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleBulkDelete}
+            disabled={isDeleting || isPending}
+            className="h-7 px-2.5 text-xs text-destructive hover:text-destructive border-destructive/30 hover:bg-destructive/10"
+          >
+            {isDeleting ? (
+              <Loader2 className="size-3 animate-spin mr-1" />
+            ) : (
+              <Trash2 className="size-3 mr-1" />
+            )}
+            Clear failed &amp; queued
+          </Button>
         </div>
       </div>
 

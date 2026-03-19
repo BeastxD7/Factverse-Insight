@@ -133,17 +133,29 @@ WRITING RULES — STRICTLY FOLLOW:
 - Write in third person, present the ideas as insights from the video
 - The article should be a complete TL;DW (Too Long; Didn't Watch) — all value, no filler
 
+CONTENT STRUCTURE FOR SEO:
+1. Opening paragraph (2-3 sentences): Hook the reader and directly state what this article covers — answer the implied search query immediately
+2. H2 headings: Phrase them as questions or specific statements people search for (e.g. "How X Works", "Why Y Matters", "What [Speaker] Says About Z")
+3. Include specific quotes, data points, and named examples — these signal E-E-A-T to Google
+4. Minimum 1500 words of substantive content
+5. End with a "## Frequently Asked Questions" section containing exactly 4 Q&A pairs:
+   - Questions must be real things people would Google about this topic
+   - Each answer: 50-80 words, self-contained, factual (optimised to appear as Google featured snippets)
+   - Format strictly as:
+     **Question text here?**
+     Answer text here.
+
 Return ONLY a JSON object:
 {
-  "title": "Compelling SEO title (50-60 chars)",
+  "title": "Specific, compelling title — include a number, name, or power word. 55-65 chars.",
   "slug": "url-friendly-slug",
-  "excerpt": "Meta excerpt / summary (120-160 chars)",
-  "content": "Full in-depth article in Markdown with H2/H3 headings, paragraphs, and a conclusion. Minimum 1200 words. Include specific insights, quotes, and examples from the video.",
-  "metaTitle": "SEO meta title (50-60 chars)",
-  "metaDescription": "SEO meta description (150-160 chars)",
-  "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
+  "excerpt": "Meta excerpt — directly state what the reader will learn. 140-160 chars.",
+  "content": "Full article in Markdown. H2/H3 headings, paragraphs, conclusion, then ## Frequently Asked Questions section. Minimum 1500 words total.",
+  "metaTitle": "SEO meta title — match search intent, 55-65 chars",
+  "metaDescription": "SEO meta description — action-oriented, include primary keyword, 150-160 chars",
+  "keywords": ["primary keyword", "long-tail phrase 1", "long-tail phrase 2", "question keyword", "speaker or brand name", "related term 1", "related term 2", "niche term"],
   "suggestedCategory": "One of: Technology, Business, Science, Health, Sports, Entertainment, Politics, World",
-  "suggestedTags": ["tag1", "tag2", "tag3"]
+  "suggestedTags": ["tag1", "tag2", "tag3", "tag4"]
 }`
 
     const raw = await complete(prompt, 12000)
@@ -158,7 +170,7 @@ Return ONLY a JSON object:
     topicKeywords?: string[]
   }): Promise<ArticleGenerationResult> {
     const config = await getActiveConfig()
-    const prompt = `You are an expert SEO content writer. Rewrite the following news item as a unique, original, SEO-optimised article. Do NOT copy the source — write it in your own words with added context and analysis.
+    const prompt = `You are an expert SEO content writer and journalist. Rewrite the following news item as a unique, original, SEO-optimised article. Do NOT copy the source — write in your own words with added context, background, and analysis.
 
 SOURCE HEADLINE: ${source.headline}
 SOURCE SUMMARY: ${source.summary}
@@ -166,17 +178,27 @@ SOURCE URL: ${source.url}
 PUBLISHED: ${source.publishedAt}
 ${source.topicKeywords?.length ? `TOPIC KEYWORDS: ${source.topicKeywords.join(", ")}` : ""}
 
+CONTENT STRUCTURE FOR SEO:
+1. Opening paragraph: Hook + directly answer the implied search query in 2-3 sentences
+2. H2 headings: Phrase as questions or statements people would search (e.g. "What This Means for X", "Why Y Matters Now")
+3. Include background context, expert perspective, and analysis — not just a summary
+4. Minimum 800 words
+5. End with a "## Frequently Asked Questions" section with 3 Q&A pairs:
+   - Real questions people Google about this topic
+   - Each answer: 50-80 words, self-contained (optimised for featured snippets)
+   - Format: **Question?**\\nAnswer.
+
 Return ONLY a JSON object:
 {
-  "title": "Compelling SEO title (50-60 chars)",
+  "title": "Specific, compelling title with a power word or number. 55-65 chars.",
   "slug": "url-friendly-slug",
-  "excerpt": "Summary (120-160 chars)",
-  "content": "Full original article in Markdown. Minimum 500 words. Include H2/H3 headings.",
-  "metaTitle": "SEO meta title (50-60 chars)",
-  "metaDescription": "SEO meta description (150-160 chars)",
-  "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
+  "excerpt": "Directly state what the reader will learn. 140-160 chars.",
+  "content": "Full article in Markdown. H2/H3 headings, analysis, then ## Frequently Asked Questions. Minimum 800 words.",
+  "metaTitle": "SEO meta title — match search intent, 55-65 chars",
+  "metaDescription": "SEO meta description — action-oriented, include primary keyword, 150-160 chars",
+  "keywords": ["primary keyword", "long-tail phrase 1", "long-tail phrase 2", "question keyword", "entity name", "related term 1", "related term 2"],
   "suggestedCategory": "One of: Technology, Business, Science, Health, Sports, Entertainment, Politics, World",
-  "suggestedTags": ["tag1", "tag2", "tag3"]
+  "suggestedTags": ["tag1", "tag2", "tag3", "tag4"]
 }`
 
     const raw = await complete(prompt)
@@ -189,23 +211,33 @@ Return ONLY a JSON object:
     topicContext: string
   ): Promise<ArticleGenerationResult> {
     const config = await getActiveConfig()
-    const prompt = `You are an expert SEO content writer. Write a comprehensive, original article about the currently trending topic below.
+    const prompt = `You are an expert SEO content writer and journalist. Write a comprehensive, original article about this currently trending topic. The article must be authoritative, informative, and optimised to rank on the first page of Google.
 
 TRENDING TOPIC: ${trendTerm}
 RELATED SEARCHES: ${relatedQueries.join(", ")}
 TOPIC CONTEXT: ${topicContext}
 
+CONTENT STRUCTURE FOR SEO:
+1. Opening paragraph: Hook + directly answer the most common question about this trend
+2. H2 headings: Target the related searches as section titles (they are what people search)
+3. Include why it is trending NOW, background context, and expert perspective
+4. Minimum 1000 words
+5. End with a "## Frequently Asked Questions" section with 4 Q&A pairs:
+   - Use the related searches as inspiration for questions
+   - Each answer: 50-80 words, self-contained (optimised for Google featured snippets)
+   - Format: **Question?**\\nAnswer.
+
 Return ONLY a JSON object:
 {
-  "title": "Compelling SEO title (50-60 chars)",
+  "title": "Trending-aware title with power word or number — 55-65 chars",
   "slug": "url-friendly-slug",
-  "excerpt": "Summary (120-160 chars)",
-  "content": "Full original article in Markdown. Minimum 600 words. Include H2/H3 headings, analysis, and conclusion.",
-  "metaTitle": "SEO meta title (50-60 chars)",
-  "metaDescription": "SEO meta description (150-160 chars)",
-  "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
+  "excerpt": "What the reader learns + why it matters right now. 140-160 chars.",
+  "content": "Full article in Markdown. H2/H3 headings, analysis, conclusion, then ## Frequently Asked Questions. Minimum 1000 words.",
+  "metaTitle": "SEO meta title — match top related search query, 55-65 chars",
+  "metaDescription": "SEO meta description — include primary keyword + call to action, 150-160 chars",
+  "keywords": ["trending term", "long-tail phrase 1", "long-tail phrase 2", "question keyword", "related search 1", "related search 2", "niche term"],
   "suggestedCategory": "One of: Technology, Business, Science, Health, Sports, Entertainment, Politics, World",
-  "suggestedTags": ["tag1", "tag2", "tag3"]
+  "suggestedTags": ["tag1", "tag2", "tag3", "tag4"]
 }`
 
     const raw = await complete(prompt)
@@ -416,17 +448,29 @@ WRITING RULES — STRICTLY FOLLOW:
 - The article should be a complete TL;DW (Too Long; Didn't Watch) — all value, no filler
 - Focus ONLY on the topics of this segment: "${segment.title}"
 
+CONTENT STRUCTURE FOR SEO:
+1. Opening paragraph (2-3 sentences): Hook + directly answer the implied search query
+2. H2 headings: Phrase as questions or specific statements people search (e.g. "How X Works", "Why Y Changed Everything")
+3. Include specific quotes, data points, and named examples — signal E-E-A-T
+4. MINIMUM 1500 words of substantive content
+5. End with a "## Frequently Asked Questions" section with exactly 4 Q&A pairs:
+   - Questions: real things people would Google about this specific topic
+   - Each answer: 50-80 words, self-contained, factual (optimised for Google featured snippets)
+   - Format strictly as:
+     **Question text here?**
+     Answer text here.
+
 Return ONLY a JSON object:
 {
-  "title": "Compelling SEO title about this specific topic (50-60 chars)",
+  "title": "Specific, compelling title — include a number, name, or power word. 55-65 chars.",
   "slug": "url-friendly-slug",
-  "excerpt": "Meta excerpt / summary (120-160 chars)",
-  "content": "Full in-depth article in Markdown with H2/H3 headings, paragraphs, and conclusion. MINIMUM 1500 words. Include specific quotes, stories, and insights from the video. Cover every important point thoroughly.",
-  "metaTitle": "SEO meta title (50-60 chars)",
-  "metaDescription": "SEO meta description (150-160 chars)",
-  "keywords": ["keyword1", "keyword2", "keyword3", "keyword4", "keyword5"],
+  "excerpt": "Directly state what the reader will learn. 140-160 chars.",
+  "content": "Full article in Markdown. H2/H3 headings, paragraphs, conclusion, then ## Frequently Asked Questions section. Minimum 1500 words total.",
+  "metaTitle": "SEO meta title — match search intent, 55-65 chars",
+  "metaDescription": "SEO meta description — action-oriented, include primary keyword, 150-160 chars",
+  "keywords": ["primary keyword", "long-tail phrase 1", "long-tail phrase 2", "question keyword", "speaker or brand name", "related term 1", "related term 2", "niche term"],
   "suggestedCategory": "One of: Technology, Business, Science, Health, Sports, Entertainment, Politics, World",
-  "suggestedTags": ["tag1", "tag2", "tag3"]
+  "suggestedTags": ["tag1", "tag2", "tag3", "tag4"]
 }`
 
     // 12000 tokens ≈ 9000 words of output — plenty for a comprehensive 1500-3000 word article

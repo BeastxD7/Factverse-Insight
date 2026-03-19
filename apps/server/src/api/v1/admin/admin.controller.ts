@@ -124,4 +124,29 @@ export const adminController = {
     await prisma.jobRun.update({ where: { id }, data: { status: "CANCELLED" } })
     apiNoContent(res)
   },
+
+  async bulkDeleteJobs(_req: Request, res: Response): Promise<void> {
+    // Remove PENDING jobs from BullMQ then delete both PENDING + FAILED from DB
+    const pending = await prisma.jobRun.findMany({
+      where: { status: "PENDING" },
+      select: { id: true, bullJobId: true },
+    })
+
+    await Promise.allSettled(
+      pending
+        .filter((j) => j.bullJobId)
+        .map(async (j) => {
+          for (const queue of allQueues) {
+            const bullJob = await queue.getJob(j.bullJobId!)
+            if (bullJob) { await bullJob.remove(); break }
+          }
+        })
+    )
+
+    const { count } = await prisma.jobRun.deleteMany({
+      where: { status: { in: ["PENDING", "FAILED"] } },
+    })
+
+    apiSuccess(res, { deleted: count })
+  },
 }

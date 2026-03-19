@@ -202,7 +202,6 @@ export default async function HomePage({
                 <p className="text-xs font-bold uppercase tracking-widest text-neutral-600 mb-3">Platform</p>
                 <div className="space-y-2">
                   <Link href="/" className="block text-sm text-neutral-400 hover:text-white transition-colors">Stories</Link>
-                  <Link href="/login" className="block text-sm text-neutral-400 hover:text-white transition-colors">Admin</Link>
                 </div>
               </div>
             </div>

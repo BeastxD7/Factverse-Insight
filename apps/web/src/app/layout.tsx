@@ -7,7 +7,7 @@ import "./globals.css";
 const SITE_URL = "https://www.factverseinsight.com"
 const SITE_NAME = "Factverse Insights"
 const SITE_DESCRIPTION =
-  "Factverse Insights delivers High Quality Content from Well Known Creators, fact-checked news and in-depth analysis across politics, technology, science, and world affairs. Stay informed with intelligent, curated stories."
+  "Factverse Insights turns YouTube videos, podcasts, and breaking news into in-depth articles covering technology, business, science, politics, and world affairs. Expert analysis, AI-powered insights, updated daily."
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -27,19 +27,16 @@ export const metadata: Metadata = {
   },
   description: SITE_DESCRIPTION,
   keywords: [
-    "High Quality Content",
-    "Well Known Creators",
-    "AI News",
-    "Fact-checked News",
-    "Breaking News",
-    "World News",
-    "Technology News",
-    "Politics News",
-    "Science News",
-    "Factverse Insights",
-    "intelligent news",
-    "curated news",
+    "AI news articles",
+    "YouTube video summaries",
+    "technology news analysis",
+    "science news today",
+    "business insights",
+    "world news explained",
+    "in-depth news articles",
     "AI journalism",
+    "podcast summaries",
+    "Factverse Insights",
   ],
   authors: [{ name: SITE_NAME, url: SITE_URL }],
   creator: SITE_NAME,
@@ -106,7 +103,20 @@ const websiteJsonLd = {
     logo: {
       "@type": "ImageObject",
       url: `${SITE_URL}/logo.png`,
+      width: 500,
+      height: 500,
     },
+    sameAs: [
+      "https://twitter.com/factverseinsights",
+    ],
+  },
+  potentialAction: {
+    "@type": "SearchAction",
+    target: {
+      "@type": "EntryPoint",
+      urlTemplate: `${SITE_URL}/?q={search_term_string}`,
+    },
+    "query-input": "required name=search_term_string",
   },
 }
 

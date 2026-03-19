@@ -35,6 +35,7 @@ const jobQuerySchema = z.object({
 router.get("/jobs", validate(jobQuerySchema, "query"), adminController.listJobs)
 router.get("/jobs/:id", adminController.getJob)
 router.delete("/jobs/:id", adminController.cancelJob)
+router.delete("/jobs", adminController.bulkDeleteJobs)
 
 // AI config
 const aiConfigSchema = z.object({

@@ -54,6 +54,15 @@ export interface JobsPage {
   totalPages: number
 }
 
+export async function bulkDeleteJobs(): Promise<{ success: boolean; deleted?: number; error?: string }> {
+  try {
+    const data = await serverApi.delete<{ deleted: number }>("/admin/jobs")
+    return { success: true, deleted: data.deleted }
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Failed" }
+  }
+}
+
 export async function getYoutubeJobs(
   page = 1,
   status?: string,
